@@ -12,6 +12,7 @@ The pipeline is always the same:
 The SVGs carry no scripts, fonts or external assets, so GitHub can show them
 through a plain <img>. Colours are CSS variables with a light-mode override.
 """
+import math
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +36,7 @@ THEMES = {
     "light": {"bg": "#fbfbf9", "edge": "#d9dee5", "t1": "#d5dbe3", "t2": "#a9b5c4", "t3": "#74859a",
               "t4": "#47566a", "t5": "#141c27", "a": "#d9480f", "b": "#eda27f", "k": "#0c8479"},
 }
+PICTURE = {"bg": "#06080c", "edge": "#1c2330"}   # ground for full-colour pictures
 CLASSES = ["t1", "t2", "t3", "t4", "t5", "b", "a", "k"]
 
 _MONO_FILES = ["consola.ttf", "CascadiaMono.ttf", "DejaVuSansMono.ttf", "LiberationMono-Regular.ttf", "Menlo.ttc"]
@@ -198,6 +200,49 @@ class Sprite:
             k -= h
 
 
+def pack(frames):
+    """Split a looping list of Grids into a static Grid and sprites that each
+    store as little as possible.
+
+    Every cell that ever changes is grouped with the cells that share its own
+    period (a divisor of the loop) and the frames at which it changes. A group
+    whose cells change rarely becomes a sprite with one frame per change, held
+    for as long as it lasts; cells that change often are pooled per period.
+    Returns (static_grid, [(frames, hold), ...])."""
+    n = len(frames)
+    key = np.stack([np.char.add(g.ch, g.cl) for g in frames])
+    moving = (key != key[0:1]).any(0)
+    static = frames[0].copy()
+    static.ch[moving], static.cl[moving] = " ", ""
+    periods = [p for p in range(1, n + 1) if n % p == 0]
+    groups = {}
+    for r, c in zip(*np.nonzero(moving)):
+        seq = key[:, r, c]
+        p = next(p for p in periods if (seq == np.roll(seq, p)).all())
+        s_ = seq[:p]
+        sig = tuple(int(f) for f in np.nonzero(s_ != np.roll(s_, 1))[0])
+        groups.setdefault((p, sig), []).append((r, c))
+
+    def grid(cells, f):
+        g = Grid(frames[0].cols, frames[0].rows)
+        for r, c in cells:
+            g.ch[r, c], g.cl[r, c] = frames[f].ch[r, c], frames[f].cl[r, c]
+        return g
+
+    sprites, pooled = [], {}
+    for (p, sig), cells in groups.items():
+        if len(cells) >= 12 and len(sig) * 2 <= p:      # a big group that rarely changes: its own sprite
+            starts = list(sig) if sig[0] == 0 else [0] + list(sig)
+            hold = [b - a for a, b in zip(starts, starts[1:] + [p])]
+            sprites.append(([grid(cells, f) for f in starts], hold))
+        else:                                           # pool with cells on the same beat
+            beat = math.gcd(p, *sig)
+            pooled.setdefault((p, beat), []).extend(cells)
+    for (p, beat), cells in pooled.items():
+        sprites.append(([grid(cells, f) for f in range(0, p, beat)], [beat] * (p // beat)))
+    return static, sprites
+
+
 def _esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -208,8 +253,13 @@ def _num(x):
 
 
 class Movie:
-    def __init__(self, cols, rows, pad=(14, 12), title="", desc=""):
+    def __init__(self, cols, rows, pad=(14, 12), title="", desc="", palette=None):
+        """palette: optional {class: '#rrggbb'} used instead of the themed tone
+        ramp; the picture then keeps its own colours (and a fixed dark ground)
+        in both light and dark mode."""
         self.cols, self.rows, self.pad = cols, rows, pad
+        self.palette = palette
+        self.classes = list(palette) if palette else CLASSES
         self.w = round(cols * CW + 2 * pad[0])
         self.h = round(rows * RH + 2 * pad[1])
         self.title, self.desc = title, desc
@@ -251,7 +301,7 @@ class Movie:
                     w = _num((prev - start + 1) * CW)
                     covers.append(f"M{_num(self.x(start))} {_num(self.y(r))}h{w}v{_num(RH)}h-{w}z")
                     start = prev = c
-            for cls in CLASSES:
+            for cls in self.classes:
                 items = sorted(it for it in rows[r].get(cls, []) if it[1] != NBSP)
                 if not items:
                     continue
@@ -277,8 +327,12 @@ class Movie:
                "@media (prefers-color-scheme:light){svg{"
                + ";".join(f"--{k}:{v}" for k, v in THEMES["light"].items()) + "}}",
                ".cv{fill:var(--bg)}"]
-        css += [f".{c}{{fill:var(--{c})}}" for c in CLASSES]
-        body = []
+        if self.palette:
+            css[1:3] = ["svg{" + ";".join(f"--{k}:{v}" for k, v in PICTURE.items()) + "}"]
+            css += [f".{c}{{fill:{v}}}" for c, v in self.palette.items()]
+        else:
+            css += [f".{c}{{fill:var(--{c})}}" for c in CLASSES]
+        body, done = [], set()
         for si, sp in enumerate(self.sprites):
             cells = [g.cells() for g in sp.frames]
             n = len(cells)
@@ -289,18 +343,25 @@ class Movie:
             static = {k: cells[0][k] for k in keys if all(k in f and f[k] == cells[0][k] for f in cells)}
             if static:
                 body.append(f"<g>{self._runs(static, sp.opaque)}</g>")
-            css.append(f".s{si}>g{{visibility:hidden;animation:s{si}h1 {sp.dur:.4g}s linear infinite}}")
-            for h in sorted(set(sp.hold)):      # one keyframe rule per distinct hold length
-                css.append(f"@keyframes s{si}h{h}{{0%{{visibility:visible}}"
-                           f"{100 * h / sp.ticks:.4f}%,100%{{visibility:hidden}}}}")
+            # sprites with the same clock share their CSS: one class per (ticks, fps),
+            # one keyframe rule per (ticks, hold length)
+            clock = f"s{sp.ticks}f{_num(sp.fps).replace('.', '_')}"
+            if clock not in done:
+                done.add(clock)
+                css.append(f".{clock}>g{{visibility:hidden;animation:{clock}h1 {sp.dur:.4g}s linear infinite}}")
+            for h in sorted(set(sp.hold)):
+                if (clock, h) not in done:
+                    done.add((clock, h))
+                    css.append(f"@keyframes {clock}h{h}{{0%{{visibility:visible}}"
+                               f"{100 * h / sp.ticks:.4f}%,100%{{visibility:hidden}}}}")
             layers, tick = [], 0
             for f, h in zip(cells, sp.hold):
                 dyn = {k: v for k, v in f.items() if k not in static}
-                style = (f"animation-delay:{tick / sp.fps:.4f}s;" if tick else "") +                         (f"animation-name:s{si}h{h}" if h != 1 else "")
+                style = (f"animation-delay:{tick / sp.fps:.4f}s;" if tick else "") +                         (f"animation-name:{clock}h{h}" if h != 1 else "")
                 attr = f' style="{style.rstrip(";")}"' if style else ""
                 layers.append(f"<g{attr}>{self._runs(dyn, sp.opaque)}</g>" if dyn else f"<g{attr}/>")
                 tick += h
-            body.append(f'<g class="s{si}">{"".join(layers)}</g>')
+            body.append(f'<g class="{clock}">{"".join(layers)}</g>')
         css.append("@media (prefers-reduced-motion:reduce){[class^=s]>g{animation:none}"
                    "[class^=s]>g:first-child{visibility:visible}}")
         w, h = self.w, self.h
@@ -331,7 +392,7 @@ class Movie:
 
     def preview(self, name, times=(0,), theme="dark", scale=1):
         PREVIEW.mkdir(exist_ok=True)
-        pal = THEMES[theme]
+        pal = dict(THEMES[theme], **(dict(PICTURE, **self.palette) if self.palette else {}))
         f = mono(FONT_PX * scale)
         w, h = self.w * scale, self.h * scale
         sheet = Image.new("RGB", (w, h * len(times)), pal["bg"])

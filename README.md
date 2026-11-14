@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/hero.svg" width="100%" alt="An ASCII ripple tank. The name ARDA ÇABUK stands in the water in large block letters. A steady source between the two words sends out rings that reflect off the letters and bend through the gaps. Every ten seconds a second source fires at a different frequency in the corner; its rings are drawn in orange and a readout switches from nominal to anomaly. Below the name: embedded software, machine learning.">
+  <img src="assets/hero.svg" width="100%" alt="A ray-marched room at night, drawn in ASCII. A small pink neon on the wall reads arda çabuk and flickers now and then. Below it someone with light-brown hair and headphones sits at a desk with their back to you, nodding to the music and typing; the monitor reads arda@jetson and shows a scrolling vibration trace marked nominal, a development board blinks, steam rises from a mug. Through a tall arched window a cat swishes its tail on the sill under a crescent moon, stars twinkle, shooting stars cross, cars pass on the hill road and wind turbines turn on the ridge with red lights blinking.">
 </p>
 
 ### Hi, I'm Arda.
 
 I write software for things you can put a probe on. Some days that is C written against the reference manual, one register at a time, on a Cortex-M4. Other days it is a handful of C++ processes passing messages on a Raspberry Pi, or a Jetson turning 28 channels of vibration into spectra. Once the data is clean enough to learn from, I switch to Python and PyTorch.
 
-The two halves meet more often than you would expect, because most of what I build ends up answering one question: **is this still normal?** A switch that bounces. A turbine that starts humming at the wrong frequency. A crack in a board, a leaf that is sick before it looks sick. The picture above asks the same thing of a tank of water.
+The two halves meet more often than you would expect, because most of what I build ends up answering one question: **is this still normal?** A switch that bounces. A turbine that starts humming at the wrong frequency. A crack in a board, a leaf that is sick before it looks sick. The picture above is a night like that: turbines turning on the ridge, their vibration on the screen, and someone checking.
 
 I graduated from Eskişehir Osmangazi University in 2026 with a B.Sc. in Computer Engineering and a 3.83 GPA, first in my department and in the faculty. I'm looking for a role in **embedded software** or **machine learning**, ideally somewhere the two touch.
 
@@ -113,4 +113,4 @@ I also work in C#, Java, Spring Boot, React, .NET and Unity. Turkish is my nativ
 
 [LinkedIn](https://www.linkedin.com/in/arda-%C3%A7abuk-8355b2253) · [ardacabuk1@hotmail.com](mailto:ardacabuk1@hotmail.com) · [LeetCode](https://leetcode.com/u/prathos/)
 
-<p align="center"><sub>Every picture on this page is computed. Each one is a small simulation (a wave equation, a debounce state machine, a path tracer, a cellular automaton) drawn as characters by the scripts in <a href="assets/src">assets/src</a> and shipped as a plain SVG: no JavaScript, no GIFs, light and dark.</sub></p>
+<p align="center"><sub>Every picture on this page is computed. Each one is a small simulation (a ray-marched room, a debounce state machine, a path tracer, a cellular automaton) drawn as characters by the scripts in <a href="assets/src">assets/src</a> and shipped as a plain SVG: no JavaScript, no GIFs, light and dark.</sub></p>
