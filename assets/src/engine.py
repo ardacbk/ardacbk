@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 ASSETS = Path(__file__).resolve().parent.parent
 PREVIEW = Path(__file__).resolve().parent / "_preview"
 
-FONT_PX = 14          # font-size inside the SVG
+FONT_PX = 14          # font-size inside the SVG (a 0.6 em monospace advance is exactly CW)
 CW, RH = 8.4, 17.0    # one character cell, in SVG units
 SX, SY = 4, 8         # sub-samples per cell used by the matcher
 BASELINE = 0.74       # baseline position inside a cell (fraction of RH)
@@ -357,7 +357,11 @@ class Movie:
         return "".join(out)
 
     def svg(self):
-        css = [f"text{{font:{'700 ' if self.bold else ''}{self.font_px}px {MONO};white-space:pre}}",
+        # rows are fitted to the grid with textLength; where that is ignored (mobile
+        # WebKit) a letter-spacing that brings a 0.6 em monospace back to CW does it
+        ls = CW - 0.6 * self.font_px
+        ls = f";letter-spacing:{_num(ls) if abs(ls) >= 0.05 else 0}px" if abs(ls) >= 0.05 else ""
+        css = [f"text{{font:{'700 ' if self.bold else ''}{self.font_px}px {MONO};white-space:pre{ls}}}",
                "svg{" + ";".join(f"--{k}:{v}" for k, v in THEMES["dark"].items()) + "}",
                "@media (prefers-color-scheme:light){svg{"
                + ";".join(f"--{k}:{v}" for k, v in THEMES["light"].items()) + "}}",
