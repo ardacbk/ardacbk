@@ -351,17 +351,15 @@ class Movie:
                     run = _esc("".join(chars[i:j]))
                     body.append(run if classes[i] == main else f'<tspan class="{classes[i]}">{run}</tspan>')
                     i = j
-                tl = f' textLength="{_num(n * CW)}"' if n > 1 else ""
-                out.append(f'<text class="{main}" x="{_num(self.x(c0))}" y="{y}"{tl}>{"".join(body)}</text>')
+                # every character is pinned to its cell: WebKit misapplies textLength to
+                # rows made of <tspan> colour runs, and glyph advances differ by font
+                xs = " ".join(_num(self.x(c0 + i)) for i in range(n))
+                out.append(f'<text class="{main}" x="{xs}" y="{y}">{"".join(body)}</text>')
             seg = [cell] if cell else []
         return "".join(out)
 
     def svg(self):
-        # rows are fitted to the grid with textLength; where that is ignored (mobile
-        # WebKit) a letter-spacing that brings a 0.6 em monospace back to CW does it
-        ls = CW - 0.6 * self.font_px
-        ls = f";letter-spacing:{_num(ls) if abs(ls) >= 0.05 else 0}px" if abs(ls) >= 0.05 else ""
-        css = [f"text{{font:{'700 ' if self.bold else ''}{self.font_px}px {MONO};white-space:pre{ls}}}",
+        css = [f"text{{font:{'700 ' if self.bold else ''}{self.font_px}px {MONO};white-space:pre}}",
                "svg{" + ";".join(f"--{k}:{v}" for k, v in THEMES["dark"].items()) + "}",
                "@media (prefers-color-scheme:light){svg{"
                + ";".join(f"--{k}:{v}" for k, v in THEMES["light"].items()) + "}}",
