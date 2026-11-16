@@ -265,7 +265,7 @@ def build():
               desc="A signal pipeline read left to right: six of 28 vibration channels as waveforms, a "
                    "magnitude spectrum, a scrolling spectrogram and an LSTM autoencoder reconstruction-error "
                    "trace with a threshold. Once per loop a bearing-like fault appears in every pane at the "
-                   "same moment, drawn in orange, and the readout flips from nominal to anomaly.")
+                   "same moment, drawn in red, and the readout flips from nominal to anomaly.")
     m.add(frames, FPS)
     return m
 

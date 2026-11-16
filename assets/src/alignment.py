@@ -281,7 +281,7 @@ def build():
               desc="A wireframe plane learns to align with a fixed dashed target plane. Three replayed rollouts "
                    "from the same misaligned pose, early, middle and late in training: the early policy wobbles "
                    "and overshoots, the middle one reaches the target with some overshoot and the late one "
-                   "settles smoothly, flashing orange with an aligned tag. A learning curve with a marker and a "
+                   "settles smoothly, flashing red with an aligned tag. A learning curve with a marker and a "
                    "live error readout sit on the right.")
     m.add(frames, FPS)
     return m, len(frames)

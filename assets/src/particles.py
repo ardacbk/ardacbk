@@ -234,7 +234,7 @@ if __name__ == "__main__":
     m = Movie(COLS, ROWS, title="particle-physics-simulation",
               desc="An ASCII Verlet simulation. A nozzle at the upper left of a round container fires a stream of "
                    "particles that arc across, bounce off the wall, slide down and pile up at the bottom. The "
-                   "newest particle is drawn in orange. Then the bottom opens, the pile pours out and the "
+                   "newest particle is drawn in red. Then the bottom opens, the pile pours out and the "
                    "empty container is ready for the next run.")
     m.add(frames, FPS)
     if "--preview" in sys.argv:

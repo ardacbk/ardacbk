@@ -198,11 +198,11 @@ def draw(world, stone, f):
                 air = r == 0 or m[r - 1, c] == EMPTY
                 below = world.at(r + 1, c)
                 if below in (EMPTY, -1) and r <= 12:
-                    g.put(c, r, "|", "k")          # falling
+                    g.put(c, r, "|", "t4")         # falling
                 elif air and below not in (EMPTY, -1):
-                    g.put(c, r, "-" if ((c // 2) + f // 10) % 2 else "~", "k")
+                    g.put(c, r, "-" if ((c // 2) + f // 10) % 2 else "~", "t4")
                 else:
-                    g.put(c, r, "~", "k")
+                    g.put(c, r, "~", "t4")
     cur = cursor(f)
     if cur:
         col, tool, pouring = cur
@@ -213,7 +213,7 @@ def draw(world, stone, f):
     g.text(4, LEGEND_ROW, "stone", "t2")
     g.put(11, LEGEND_ROW, ":", "b")
     g.text(13, LEGEND_ROW, "sand", "t2")
-    g.put(19, LEGEND_ROW, "~", "k")
+    g.put(19, LEGEND_ROW, "~", "t4")
     g.text(21, LEGEND_ROW, "water", "t2")
     return g
 

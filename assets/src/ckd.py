@@ -4,7 +4,7 @@ A small missing-aware logistic model is fitted on synthetic patients drawn from
 two clusters (ckd-like, healthy-like) with random missingness. It never imputes:
 a missing feature is masked out and the remaining weighted evidence is
 renormalised by (features / present features). The animation reads the rows one
-by one: present values light up left to right, missing ones turn into a teal
+by one: present values light up left to right, missing ones turn into a green
 mask mark, then the row's probability appears.
 """
 import sys
@@ -141,7 +141,7 @@ def build():
     m = Movie(COLS, ROWS, title="NAIM on chronic kidney disease",
               desc="A table of illustrative patients with blood and urine features, about a quarter of the values "
                    "missing. A cursor reads the rows one by one: present values light up, each missing value is "
-                   "masked in teal rather than imputed, and a probability of kidney disease appears in orange when "
+                   "masked in green rather than imputed, and a probability of kidney disease appears in red when "
                    "it is above one half.")
     m.add(base())
     m.add(done, 2, opaque=True)

@@ -31,12 +31,12 @@ MONO = "ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',m
 
 # tone ramp t1 (faintest) .. t5 (ink), a = accent, b = dim accent, k = second hue
 THEMES = {
-    "dark": {"bg": "#0b0e14", "edge": "#212936", "t1": "#2b3544", "t2": "#465770", "t3": "#6d83a0",
-             "t4": "#a7b9cf", "t5": "#f1f5fa", "a": "#ff7b42", "b": "#a8532f", "k": "#56cfc3"},
-    "light": {"bg": "#fbfbf9", "edge": "#d9dee5", "t1": "#d5dbe3", "t2": "#a9b5c4", "t3": "#74859a",
-              "t4": "#47566a", "t5": "#141c27", "a": "#d9480f", "b": "#eda27f", "k": "#0c8479"},
+    "dark": {"bg": "#07080a", "edge": "#1a1c20", "t1": "#2a2c30", "t2": "#4a4c50", "t3": "#77776f",
+             "t4": "#aba99f", "t5": "#e6e2d6", "a": "#c8242c", "b": "#6e1c22", "k": "#7d8a4e"},
+    "light": {"bg": "#f4f1e8", "edge": "#d9d4c6", "t1": "#d6d1c3", "t2": "#aba99f", "t3": "#77776f",
+              "t4": "#4a4c50", "t5": "#16150f", "a": "#a8141c", "b": "#d99a9d", "k": "#55622c"},
 }
-PICTURE = {"bg": "#06080c", "edge": "#1c2330"}   # ground for full-colour pictures
+PICTURE = {"bg": "#07080a", "edge": "#1a1c20"}   # ground for full-colour pictures
 CLASSES = ["t1", "t2", "t3", "t4", "t5", "b", "a", "k"]
 
 _MONO_FILES = ["consola.ttf", "CascadiaMono.ttf", "DejaVuSansMono.ttf", "LiberationMono-Regular.ttf", "Menlo.ttc"]
@@ -253,12 +253,12 @@ def _num(x):
 
 
 class Movie:
-    def __init__(self, cols, rows, pad=(14, 12), title="", desc="", palette=None):
+    def __init__(self, cols, rows, pad=(14, 12), title="", desc="", palette=None, bold=False, font_px=FONT_PX):
         """palette: optional {class: '#rrggbb'} used instead of the themed tone
         ramp; the picture then keeps its own colours (and a fixed dark ground)
         in both light and dark mode."""
         self.cols, self.rows, self.pad = cols, rows, pad
-        self.palette = palette
+        self.palette, self.bold, self.font_px = palette, bold, font_px
         self.classes = list(palette) if palette else CLASSES
         self.w = round(cols * CW + 2 * pad[0])
         self.h = round(rows * RH + 2 * pad[1])
@@ -301,6 +301,9 @@ class Movie:
                     w = _num((prev - start + 1) * CW)
                     covers.append(f"M{_num(self.x(start))} {_num(self.y(r))}h{w}v{_num(RH)}h-{w}z")
                     start = prev = c
+            if self.palette:
+                out.append(self._picture_row(rows[r], y))
+                continue
             for cls in self.classes:
                 items = sorted(it for it in rows[r].get(cls, []) if it[1] != NBSP)
                 if not items:
@@ -321,8 +324,40 @@ class Movie:
         cover = f'<path class="cv" d="{"".join(covers)}"/>' if covers else ""
         return cover + "".join(out)
 
+    def _picture_row(self, by_class, y):
+        """One row of a full-colour picture. Nearly every cell is inked and the
+        colour changes every few cells, so a stretch of cells is one <text>
+        whose colour runs are <tspan>s (the most common colour sits on the
+        <text> itself and needs no tspan)."""
+        cells = sorted((c, ch, cls) for cls, items in by_class.items() for c, ch in items if ch != NBSP)
+        out, seg = [], []
+        for cell in cells + [None]:
+            if cell is not None and (not seg or cell[0] - seg[-1][0] <= 12):
+                seg.append(cell)
+                continue
+            if seg:
+                c0, n = seg[0][0], seg[-1][0] - seg[0][0] + 1
+                chars, classes = [" "] * n, [None] * n
+                for c, ch, cls in seg:
+                    chars[c - c0], classes[c - c0] = ch, cls
+                for i in range(1, n):                       # a gap takes the colour before it
+                    classes[i] = classes[i] or classes[i - 1]
+                main = max(set(classes), key=classes.count)
+                body, i = [], 0
+                while i < n:
+                    j = i
+                    while j < n and classes[j] == classes[i]:
+                        j += 1
+                    run = _esc("".join(chars[i:j]))
+                    body.append(run if classes[i] == main else f'<tspan class="{classes[i]}">{run}</tspan>')
+                    i = j
+                tl = f' textLength="{_num(n * CW)}"' if n > 1 else ""
+                out.append(f'<text class="{main}" x="{_num(self.x(c0))}" y="{y}"{tl}>{"".join(body)}</text>')
+            seg = [cell] if cell else []
+        return "".join(out)
+
     def svg(self):
-        css = [f"text{{font:{FONT_PX}px {MONO};white-space:pre}}",
+        css = [f"text{{font:{'700 ' if self.bold else ''}{self.font_px}px {MONO};white-space:pre}}",
                "svg{" + ";".join(f"--{k}:{v}" for k, v in THEMES["dark"].items()) + "}",
                "@media (prefers-color-scheme:light){svg{"
                + ";".join(f"--{k}:{v}" for k, v in THEMES["light"].items()) + "}}",
@@ -393,7 +428,7 @@ class Movie:
     def preview(self, name, times=(0,), theme="dark", scale=1):
         PREVIEW.mkdir(exist_ok=True)
         pal = dict(THEMES[theme], **(dict(PICTURE, **self.palette) if self.palette else {}))
-        f = mono(FONT_PX * scale)
+        f = font(['consolab.ttf', 'DejaVuSansMono-Bold.ttf'] + _MONO_FILES, self.font_px * scale) if self.bold else mono(self.font_px * scale)
         w, h = self.w * scale, self.h * scale
         sheet = Image.new("RGB", (w, h * len(times)), pal["bg"])
         d = ImageDraw.Draw(sheet)

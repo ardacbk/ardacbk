@@ -325,7 +325,7 @@ def build():
     m = Movie(COLS, ROWS, pad=(14, 12), title="A leaf getting sick before it looks sick",
               desc="An ASCII leaf drawn as a clean line drawing, with two scrolling sensor traces "
                    "(humidity, leaf temperature) and a p(disease) meter. As a simulated lesion field grows from "
-                   "three infection sites, the meter fed by image and sensor evidence turns orange with an early "
+                   "three infection sites, the meter fed by image and sensor evidence turns red with an early "
                    "warning while the leaf still looks almost clean; only later do the spots show. Then a new "
                    "sample is swept in from the left.")
     m.add(A, FPS // 2)

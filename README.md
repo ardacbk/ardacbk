@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.svg" width="100%" alt="A ray-marched room at night, drawn in ASCII. A small pink neon on the wall reads arda çabuk and flickers now and then. Below it someone with light-brown hair and headphones sits at a desk with their back to you, nodding to the music and typing; the monitor reads arda@jetson and shows a scrolling vibration trace marked nominal, a development board blinks, steam rises from a mug. Through a tall arched window a cat swishes its tail on the sill under a crescent moon, stars twinkle, shooting stars cross, cars pass on the hill road and wind turbines turn on the ridge with red lights blinking.">
+  <img src="assets/hero.svg" width="100%" alt="A ray-marched room at night, drawn in ASCII. A red neon sign on the back wall spells ARDA ÇABUK and stutters now and then. In the foreground someone with short curly dark-blond hair and headphones sits in profile at a desk against the left wall, lit by an amber lamp, nodding to the music and typing; the monitor reads arda@jetson and shows a scrolling vibration trace marked nominal, a development board blinks and a pair of drumsticks lies by the keyboard. A drum kit stands in the moonlight, and through a tall arched window a cat swishes its tail on the sill against the horizon under a crescent moon, stars twinkle, shooting stars cross, cars pass on the hill road and wind turbines turn on the ridge with red lights blinking.">
 </p>
 
 ### Hi, I'm Arda.
@@ -17,12 +17,12 @@ I graduated from Eskişehir Osmangazi University in 2026 with a B.Sc. in Compute
 **[stm32f411ceux_driver](https://github.com/ardacbk/stm32f411ceux_driver)** · C · ARM Cortex-M4 · no HAL<br>
 RCC, GPIO, SysTick and EXTI/NVIC drivers for the STM32F411 "Black Pill", written from the reference manual with no HAL or LL underneath. A 4×4 keypad BSP sits on top of the GPIO driver: it drives one column at a time, reads the rows through pull-downs, and runs a three-state machine (`IDLE`, `DEBOUNCE`, `PRESSED`) on SysTick timestamps, so a key that is held down is reported exactly once. The trace above is that state machine working through a contact that bounces. It builds with CMake, Ninja and arm-none-eabi-gcc.
 
-<img src="assets/raspi.svg" width="100%" alt="Four processes drawn as boxes: ClientNode on the PC, ServerNode as a router on the Raspberry Pi, DigitalIONode with a sensor, a relay and a keypad, and EnvSensorNode with its UART loop. Commands such as relay 1 and temp travel along the wires as text, are routed by their prefix, and the replies travel back to the client's terminal. The relay flips in orange.">
+<img src="assets/raspi.svg" width="100%" alt="Four processes drawn as boxes: ClientNode on the PC, ServerNode as a router on the Raspberry Pi, DigitalIONode with a sensor, a relay and a keypad, and EnvSensorNode with its UART loop. Commands such as relay 1 and temp travel along the wires as text, are routed by their prefix, and the replies travel back to the client's terminal. The relay flips in red.">
 
 **[raspi-remote-control-system](https://github.com/ardacbk/raspi-remote-control-system)** · C++17 · Linux · Raspberry Pi 3<br>
 Four processes split across a PC and a Raspberry Pi. The client talks TCP to a router process, which looks at the start of each message and forwards it to the process that owns the hardware. One of them drives a sensor, a relay and a 4×4 keypad over GPIO with libgpiod. The other answers temperature and humidity queries from a second thread sitting on the UART at `/dev/serial0`.
 
-<img src="assets/turbine.svg" width="100%" alt="A signal pipeline read left to right: scrolling vibration traces, their FFT spectrum, a spectrogram, and the reconstruction error of an autoencoder against a threshold. Once per loop a fault appears in the signal; a new band shows up in the spectrum and the error crosses the threshold in orange.">
+<img src="assets/turbine.svg" width="100%" alt="A signal pipeline read left to right: scrolling vibration traces, their FFT spectrum, a spectrogram, and the reconstruction error of an autoencoder against a threshold. Once per loop a fault appears in the signal; a new band shows up in the spectrum and the error crosses the threshold in red.">
 
 **Graduation project: turbine condition monitoring** · NVIDIA Jetson · PyTorch · MQTT · TimescaleDB<br>
 A Jetson reads 28 vibration channels and turns them into 426-dimensional FFT feature vectors and spectrograms. Two kinds of model then decide whether the machine still sounds like itself: LSTM autoencoders watch the reconstruction error, and a CNN reads the spectrograms. Everything streams over MQTT (TLS, MessagePack) into TimescaleDB hypertables.
@@ -32,24 +32,24 @@ A Jetson reads 28 vibration channels and turns them into 426-dimensional FFT fea
 <table>
 <tr>
 <td width="50%" valign="top">
-<img src="assets/wood.svg" width="100%" alt="A wooden board drawn in ASCII with a natural knot and a thin crack. A scanner line sweeps it three times, once each for GLASS, EfficientAD and INP-Former, and paints that model's anomaly map in orange: strong on the crack, quiet on the knot.">
+<img src="assets/wood.svg" width="100%" alt="A wooden board drawn in ASCII with a natural knot and a thin crack. A scanner line sweeps it three times, once each for GLASS, EfficientAD and INP-Former, and paints that model's anomaly map in red: strong on the crack, quiet on the knot.">
 <p><b><a href="https://github.com/ardacbk/wood_anomaly_detection">wood_anomaly_detection</a></b> · PyTorch · Flask · React<br>
 Three pretrained anomaly detectors, GLASS, EfficientAD and INP-Former, look at the same wooden board. A Flask backend runs them and a React frontend puts their anomaly maps side by side, so you can see where they agree on a crack and where one of them is fooled by a knot.</p>
 </td>
 <td width="50%" valign="top">
-<img src="assets/leaves.svg" width="100%" alt="An ASCII leaf next to two sensor traces and a disease-probability meter. The meter crosses one half and turns orange while the leaf still looks healthy; only afterwards do spots appear on the leaf.">
+<img src="assets/leaves.svg" width="100%" alt="An ASCII leaf next to two sensor traces and a disease-probability meter. The meter crosses one half and turns red while the leaf still looks healthy; only afterwards do spots appear on the leaf.">
 <p><b>TÜBİTAK-funded research</b> · 2024 – 2025<br>
 Models that catch plant diseases early, from two kinds of evidence at once: images of the leaves and readings from sensors around them. I also built the research group's website with Spring Boot.</p>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="assets/ckd.svg" width="100%" alt="A table of illustrative kidney-disease patients with about a quarter of the values missing, shown as question marks. A cursor reads the rows one by one: present values light up, each missing value becomes a teal mask instead of being filled in, and a probability of chronic kidney disease appears at the end of the row, in orange when it is above one half.">
+<img src="assets/ckd.svg" width="100%" alt="A table of illustrative kidney-disease patients with about a quarter of the values missing, shown as question marks. A cursor reads the rows one by one: present values light up, each missing value becomes a green mask instead of being filled in, and a probability of chronic kidney disease appears at the end of the row, in red when it is above one half.">
 <p><b><a href="https://github.com/ardacbk/NAIM-CKD">NAIM-CKD</a></b> · PyTorch · scikit-learn<br>
 Clinical tables are full of holes. NAIM is a transformer that masks missing values in attention instead of inventing numbers for them. I applied it to the UCI Chronic Kidney Disease dataset and compared it with SVM, KNN and Random Forest trained on median/mode-imputed data.</p>
 </td>
 <td width="50%" valign="top">
-<img src="assets/alignment.svg" width="100%" alt="A wireframe plane learns to align with a dashed teal target plane. Three rollouts from the same tilted pose, taken early, midway and late in training: the first wobbles, the second overshoots, the third settles and flashes orange. A learning curve sits on the right.">
+<img src="assets/alignment.svg" width="100%" alt="A wireframe plane learns to align with a dashed green target plane. Three rollouts from the same tilted pose, taken early, midway and late in training: the first wobbles, the second overshoots, the third settles and flashes red. A learning curve sits on the right.">
 <p><b>ASELSAN internship</b> · 2025 · Gymnasium<br>
 In Microelectronics and Electro-Optical Systems I modelled a 3D-plane alignment task as a Gymnasium environment and trained a reinforcement learning agent to do the alignment on its own.</p>
 </td>

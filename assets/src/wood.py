@@ -324,7 +324,7 @@ def build():
 
     m = Movie(COLS, ROWS, title="Anomaly maps on a wooden board",
               desc="A planed wooden board with a natural knot and a crack is scanned three times, once each by "
-                   "GLASS, EfficientAD and INP-Former. Each sweep paints that model's anomaly map in orange over "
+                   "GLASS, EfficientAD and INP-Former. Each sweep paints that model's anomaly map in red over "
                    "the grain: it lights up on the crack and stays quiet on the knot, then fades out with a score.")
     m.add(base)
     m.add(frames, FPS, opaque=True)
