@@ -27,6 +27,8 @@ SX, SY = 4, 8         # sub-samples per cell used by the matcher
 BASELINE = 0.74       # baseline position inside a cell (fraction of RH)
 STRIP = (140, 16)     # full-width strip: 1200 x 300
 CARD = (68, 18)       # half-width card: 595 x 334
+FINE = 10 / 14        # cell scale for fine cards: 10 px type, 6.0 x 12.1 cells
+CARD_FINE = (95, 25)  # the same card at FINE
 MONO = "ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace"
 
 # tone ramp t1 (faintest) .. t5 (ink), a = accent, b = dim accent, k = second hue
@@ -160,6 +162,32 @@ class Matcher:
         return self.chars[d.argmin(1)].reshape(rows, cols)
 
 
+class Printer:
+    """A picture (rows*sy, cols*sx) in 0..1 -> characters, the way a picture is
+    best printed: a cell with an edge in it gets the glyph whose shape is
+    closest to its pixels (so outlines print as slashes, brackets and _), a flat cell gets
+    a glyph as dense as the cell is bright, and a dark cell stays empty."""
+
+    SHAPES = " .,:;'`-_~=+*/\\|()<>!ox#%@"
+    DENSITY = " .'`,:;-~=+*!ico%x#&@"
+
+    def __init__(self, edge=0.3, floor=0.03):
+        self.edge, self.floor = edge, floor
+        self.shape = Matcher(self.SHAPES)
+        cov = Matcher(self.DENSITY).masks.mean(1)
+        self.dens = np.array(list(self.DENSITY))[np.argsort(cov)]
+
+    def __call__(self, v, sx=SX, sy=SY):
+        rows, cols = v.shape[0] // sy, v.shape[1] // sx
+        b = v[:rows * sy, :cols * sx].reshape(rows, sy, cols, sx)
+        lum = b.mean((1, 3))
+        span = b.max((1, 3)) - b.min((1, 3))
+        flat = self.dens[np.clip((lum * len(self.dens)).astype(int), 0, len(self.dens) - 1)]
+        ch = np.where(span > self.edge, self.shape.match(v), flat)
+        ch[lum < self.floor] = " "
+        return ch, lum
+
+
 def cell_mean(img, sx=SX, sy=SY):
     rows, cols = img.shape[0] // sy, img.shape[1] // sx
     return img[:rows * sy, :cols * sx].reshape(rows, sy, cols, sx).mean((1, 3))
@@ -253,15 +281,21 @@ def _num(x):
 
 
 class Movie:
-    def __init__(self, cols, rows, pad=(14, 12), title="", desc="", palette=None, bold=False, font_px=FONT_PX):
+    def __init__(self, cols, rows, pad=(14, 12), title="", desc="", palette=None, bold=False, font_px=None, cell=1.0):
         """palette: optional {class: '#rrggbb'} used instead of the themed tone
         ramp; the picture then keeps its own colours (and a fixed dark ground)
-        in both light and dark mode."""
+        in both light and dark mode.
+
+        cell: size of a character cell relative to the standard one; a card
+        drawn with cell=FINE fits about twice as many characters in the same
+        width, with the font scaled to match."""
         self.cols, self.rows, self.pad = cols, rows, pad
-        self.palette, self.bold, self.font_px = palette, bold, font_px
+        self.cw, self.rh = CW * cell, RH * cell
+        self.palette, self.bold = palette, bold
+        self.font_px = font_px if font_px is not None else round(FONT_PX * cell, 2)
         self.classes = list(palette) if palette else CLASSES
-        self.w = round(cols * CW + 2 * pad[0])
-        self.h = round(rows * RH + 2 * pad[1])
+        self.w = round(cols * self.cw + 2 * pad[0])
+        self.h = round(rows * self.rh + 2 * pad[1])
         self.title, self.desc = title, desc
         self.sprites, self.under, self.over = [], [], []
 
@@ -277,10 +311,10 @@ class Movie:
         return self
 
     def x(self, c):
-        return self.pad[0] + c * CW
+        return self.pad[0] + c * self.cw
 
     def y(self, r):
-        return self.pad[1] + r * RH
+        return self.pad[1] + r * self.rh
 
     # -- svg ------------------------------------------------------------
     def _runs(self, cells, opaque):
@@ -290,7 +324,7 @@ class Movie:
             rows.setdefault(r, {}).setdefault(cls, []).append((c, ch))
         out, covers = [], []
         for r in sorted(rows):
-            y = _num(self.y(r) + RH * BASELINE)
+            y = _num(self.y(r) + self.rh * BASELINE)
             if opaque:
                 cs = sorted(c for items in rows[r].values() for c, _ in items)
                 start = prev = cs[0]
@@ -298,8 +332,8 @@ class Movie:
                     if c is not None and c == prev + 1:
                         prev = c
                         continue
-                    w = _num((prev - start + 1) * CW)
-                    covers.append(f"M{_num(self.x(start))} {_num(self.y(r))}h{w}v{_num(RH)}h-{w}z")
+                    w = _num((prev - start + 1) * self.cw)
+                    covers.append(f"M{_num(self.x(start))} {_num(self.y(r))}h{w}v{_num(self.rh)}h-{w}z")
                     start = prev = c
             if self.palette:
                 out.append(self._picture_row(rows[r], y))
@@ -318,7 +352,7 @@ class Movie:
                     for c, ch in group:
                         chars[c - c0] = ch
                     n = len(chars)
-                    tl = f' textLength="{_num(n * CW)}"' if n > 1 else ""
+                    tl = f' textLength="{_num(n * self.cw)}"' if n > 1 else ""
                     out.append(f'<text class="{cls}" x="{_num(self.x(c0))}" y="{y}"{tl}>{_esc("".join(chars))}</text>')
                     group = [it] if it else []
         cover = f'<path class="cv" d="{"".join(covers)}"/>' if covers else ""
@@ -359,7 +393,7 @@ class Movie:
         return "".join(out)
 
     def svg(self):
-        css = [f"text{{font:{'700 ' if self.bold else ''}{self.font_px}px {MONO};white-space:pre}}",
+        css = [f"text{{font:{'700 ' if self.bold else ''}{_num(self.font_px)}px {MONO};white-space:pre}}",
                "svg{" + ";".join(f"--{k}:{v}" for k, v in THEMES["dark"].items()) + "}",
                "@media (prefers-color-scheme:light){svg{"
                + ";".join(f"--{k}:{v}" for k, v in THEMES["light"].items()) + "}}",
@@ -437,7 +471,7 @@ class Movie:
         for i, t in enumerate(times):
             g = self.frame(t)
             for (r, c), (ch, cls) in g.cells().items():
-                d.text(((self.x(c) + CW / 2) * scale, i * h + (self.y(r) + RH * BASELINE) * scale), ch,
+                d.text(((self.x(c) + self.cw / 2) * scale, i * h + (self.y(r) + self.rh * BASELINE) * scale), ch,
                        font=f, fill=pal[cls], anchor="ms")
             d.rectangle([0, i * h, w - 1, (i + 1) * h - 1], outline=pal["edge"])
         sheet.save(PREVIEW / name)

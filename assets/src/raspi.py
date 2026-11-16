@@ -6,6 +6,10 @@ router applies the prefix rule (sensor/relay/key -> DigitalIONode, temp/humidity
 writes 't' to the UART and its virtual sensor thread answers 25.3...) and the
 reply travels back. The simulation emits a timeline of flights (literal message
 text moving along a wire) and state changes; the frames are drawn from it.
+
+A message eases out of its sender and into its receiver, the wire it has
+crossed stays lit (=) while it is in flight, and a short fading trail follows
+it, so the eye can follow which way it goes.
 """
 import sys
 
@@ -181,13 +185,27 @@ def hline(g, lane, cls="t1"):
 def draw_flight(g, fl, f):
     f0, f1, text, (row, lo, hi), d, cls, speed = fl
     k = f - f0
+    n = max(f1 - f0 - 1, 1)
     L = len(text)
+    span = hi - lo + 1 + L + 1
+    s = min(max((k + 0.5) / (n + 0.5), 0), 1)
+    travel = int(round(span * s * s * (3 - 2 * s)))       # ease out of the sender, into the receiver
     if d > 0:
-        head = lo - 1 + speed * k
+        head = lo - 1 + travel
         cells = [(head - L + 1 + i, ch) for i, ch in enumerate(text)]
+        tail = range(lo, head - L + 1)
+        trail = [head - L - 1 - i for i in range(4)]
     else:
-        head = hi + 1 - speed * k
+        head = hi + 1 - travel
         cells = [(head + i, ch) for i, ch in enumerate(text)]
+        tail = range(head + L, hi + 1)
+        trail = [head + L + 1 + i for i in range(4)]
+    wire = "t2" if cls != "a" else "b"
+    for c in tail:                                       # the wire behind it is lit
+        g.put(c, row, "=", wire)
+    for i, c in enumerate(trail):                        # and a short fading trail
+        if lo <= c <= hi:
+            g.put(c, row, "#*+:"[i], cls if i == 0 else ("t4" if i < 2 else "t3") if cls != "a" else ("a" if i < 2 else "b"))
     xs = [c for c, _ in cells]
     for c in (min(xs) - 1, max(xs) + 1):                  # a little air around the text
         if lo <= c <= hi:

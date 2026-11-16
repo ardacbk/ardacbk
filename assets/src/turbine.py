@@ -13,15 +13,20 @@ Panes, all sharing one time axis ("now" at each pane's right edge):
   4. a reconstruction-error trace: spectral distance of the STFT frame from the
      healthy baseline, against a dashed threshold (the larger of mean + 4 sigma and twice the mean of the healthy errors).
 Whatever is not in the healthy baseline is drawn in the accent colour.
+
+The strip uses the fine grid (about twice the cells), so each waveform gets
+three rows, the spectrogram shows more frequency bins as a dense heat map, and
+the spectrum has more bars.
 """
 import sys
 
 import numpy as np
 
-from engine import SX, Grid, Movie
+from engine import FINE, SX, Grid, Movie
 
-COLS, ROWS = 140, 16
-FPS = 8
+COLS, ROWS = 196, 22
+FPS = 4
+STEP = 2                     # columns scrolled per frame (keeps the file small; same speed as 1 col at 8 fps)
 L = 72                       # loop length in columns == frames
 SPC = SX                     # samples per column
 NS = L * SPC                 # samples in the circular buffer
@@ -33,12 +38,15 @@ CH_NAMES = ["ch00", "ch05", "ch11", "ch16", "ch22", "ch27"]
 SPEC_CH = 2                  # channel analysed by fft / spectrogram / error
 
 # layout
-R0, R1 = 2, 13               # content rows
-P1 = (7, 42)                 # waveform columns (labels sit in 2..5)
-P2 = (48, 69)
-P3 = (75, 102)
-P4 = (108, 137)
-SEP = (45, 72, 105)
+R0, R1 = 2, 19               # content rows
+P1 = (7, 58)                 # waveform columns (labels sit in 2..5)
+P2 = (64, 93)
+P3 = (99, 140)
+P4 = (146, 193)
+SEP = (61, 96, 143)
+LANE = 3                     # rows per waveform
+NB = 18                      # spectrogram bins shown, one per row
+NBAR = 15                    # fft bars, two columns each
 
 
 # ---------------------------------------------------------------- the signal
@@ -163,12 +171,12 @@ def build():
     thr = max(err[clean_cols].mean() + 4 * err[clean_cols].std(), 2 * err[clean_cols].mean())
     print(f"error: healthy {err[clean_cols].mean():.3f}+-{err[clean_cols].std():.3f}, thr {thr:.3f}, peak {err.max():.3f}")
 
-    # spectrogram: bins 0..11 (0..0.17 cycles/sample), one bin per row
-    sdb = db(S[:, :12])
+    # spectrogram: bins 0..NB-1, one bin per row
+    sdb = db(S[:, :NB])
     base_row = sdb[clean_cols].mean(0)
     lo, hi = np.percentile(sdb, 45), np.percentile(sdb, 99.8)
     # fft: bins 0..21, two bins per bar
-    F = np.array([spectrum(sig[SPEC_CH], c)[:22].reshape(11, 2).max(1) for c in range(L)])
+    F = np.array([spectrum(sig[SPEC_CH], c)[:2 * NBAR].reshape(NBAR, 2).max(1) for c in range(L)])
     Fh = F[clean32].mean(0)
     flo, fhi = np.percentile(db(F[clean32]), 35), np.percentile(db(F), 99.8)
     fv = lambda x: np.clip((db(x) - flo) / (fhi - flo), 0, 1)
@@ -178,13 +186,13 @@ def build():
     w3 = P3[1] - P3[0] + 1
     w4 = P4[1] - P4[0] + 1
     nrows = R1 - R0 + 1
-    ramp = " .:-=+*#"
-    ramp_cl = ["", "t1", "t1", "t2", "t2", "t2", "t3", "t4"]
-    thr_row = R0 + 5
-    harmonic_bars = {2, 4, 6, 8, 10}
+    ramp = " .,:;-~=+*o%#@"
+    ramp_cl = ["", "t1", "t1", "t1", "t2", "t2", "t2", "t2", "t3", "t3", "t3", "t4", "t4", "t5"]
+    thr_row = R0 + 8
+    harmonic_bars = {2, 4, 6, 8, 10, 12, 14}
 
     frames = []
-    for cur in range(L):
+    for cur in range(0, L, STEP):
         g = Grid(COLS, ROWS)
 
         # labels
@@ -201,15 +209,15 @@ def build():
         cols1 = (cur - w1 + 1 + np.arange(w1)) % L
         e1 = env_col[cols1]
         for i in range(NCH):
-            y = 9.4 - np.clip(D[i][cols1] * 2.3, -6.6, 6.5)
-            for c, r, ch in trace_glyphs(y, 2, 6):
+            y = LANE * 4 - np.clip(D[i][cols1] * 3.4, -LANE * 4 + 1.5, LANE * 4 - 1.5)
+            for c, r, ch in trace_glyphs(y, LANE, 6):
                 cls = "a" if e1[c] > 0.3 else "b" if e1[c] > 0.04 else ("t3" if i == SPEC_CH else "t2")
-                g.put(P1[0] + c, R0 + 2 * i + r, ch, cls)
-            g.text(P1[0] - 5, R0 + 2 * i + 1, CH_NAMES[i], "t3" if i == SPEC_CH else "t2")
+                g.put(P1[0] + c, R0 + LANE * i + r, ch, cls)
+            g.text(P1[0] - 5, R0 + LANE * i + 1, CH_NAMES[i], "t3" if i == SPEC_CH else "t2")
 
         # ---- pane 2: fft of the current window, one bar per two columns
         v, vb = fv(F[cur]), fv(Fh)
-        for i in range(11):
+        for i in range(NBAR):
             h = int(round(v[i] * nrows * 8))
             hb = int(round(vb[i] * nrows * 8))
             hot = h > hb + 10
@@ -229,8 +237,8 @@ def build():
         for i, c in enumerate(cols3):
             val = np.clip((sdb[c] - lo) / (hi - lo), 0, 0.999) ** 1.15
             ex = sdb[c] - base_row
-            for k in range(12):
-                idx = int(val[k] * 8)
+            for k in range(NB):
+                idx = int(val[k] * len(ramp))
                 if idx == 0:
                     continue
                 cls = ramp_cl[idx]
@@ -261,7 +269,7 @@ def build():
         g.text(P2[0], R1 + 1, "freq ->", "t1")
         frames.append(g)
 
-    m = Movie(COLS, ROWS, pad=(12, 14), title="Turbine condition monitoring pipeline",
+    m = Movie(COLS, ROWS, pad=(12, 14), cell=FINE, title="Turbine condition monitoring pipeline",
               desc="A signal pipeline read left to right: six of 28 vibration channels as waveforms, a "
                    "magnitude spectrum, a scrolling spectrogram and an LSTM autoencoder reconstruction-error "
                    "trace with a threshold. Once per loop a bearing-like fault appears in every pane at the "

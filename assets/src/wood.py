@@ -1,10 +1,11 @@
 """Wood: one board, inspected three times.
 
-A planed board is drawn as long fibre lines (runs of - and _ that follow
-streamlines bending around a knot) with a natural knot (concentric rings, not
-a defect) and a thin jagged crack (the defect). The same geometry is rasterised
-into a real float image (4x8 samples per character cell), and three small,
-genuinely different detectors stand in for the three real models:
+A planed board with fibre lines bending around a natural knot (concentric
+rings, not a defect) and a thin jagged crack (the defect) is rasterised into
+a real float image (4x8 samples per character cell, on the fine grid). The
+board is printed from that image: a light, grained surface in which the knot's
+rings and the crack show as dark breaks. Three small, genuinely different
+detectors stand in for the three real models:
 
   GLASS        local deviation from a blurred reference
   EfficientAD  patch difference: each patch against its neighbours along the grain
@@ -20,21 +21,22 @@ import sys
 import numpy as np
 from scipy.ndimage import gaussian_filter, gaussian_filter1d, uniform_filter
 
-from engine import SX, SY, Grid, Movie, cell_max
+from engine import CARD_FINE, FINE, SX, SY, Grid, Movie, Printer, cell_max, cell_mean
 
-COLS, ROWS = 68, 18
-BC0, BR0, BCOLS, BROWS = 1, 2, 66, 14          # board interior (cells)
-H, W = BROWS * SY, BCOLS * SX                   # 112 x 264 samples
+COLS, ROWS = CARD_FINE
+BC0, BR0, BCOLS, BROWS = 1, 2, 93, 20          # board interior (cells)
+H, W = BROWS * SY, BCOLS * SX                   # 160 x 372 samples
+FX, FY = W / 264, H / 112                       # the geometry was laid out on a 264 x 112 board
 FPS = 10
 PHASE = 36                                      # frames per model
 N = 3 * PHASE
 SWEEP, HOLD, FADE = 14, 11, 6                   # then clean frames before the next phase
 LEAD = 2                                        # clean frames before the scanner enters
 
-KNOT = (70.0, 44.0, 32.0, 19.0)                 # cx, cy, rx, ry in samples
+KNOT = (70.0 * FX, 44.0 * FY, 32.0 * FX, 19.0 * FY)   # cx, cy, rx, ry in samples
 KNOT_RINGS = (0.40, 0.72, 1.0)
-CRACK_X0, CRACK_X1 = 160, 220                   # samples (15 cells)
-CRACK_Y = 76
+CRACK_X0, CRACK_X1 = int(160 * FX), int(220 * FX)     # samples
+CRACK_Y = 76 * FY
 MODELS = ["GLASS", "EfficientAD", "INP-Former"]
 BS = "\\"
 
@@ -46,8 +48,8 @@ def crack_path(rng):
     cur = float(CRACK_Y)
     for i in range(len(xs)):
         cur += rng.normal(0, 0.3)
-        if rng.random() < 0.07:
-            cur += rng.choice([-1, 1]) * rng.uniform(4, 8)      # a jag
+        if rng.random() < 0.06:
+            cur += rng.choice([-1, 1]) * rng.uniform(5, 10)     # a jag
         cur += 0.05 * (CRACK_Y - cur)
         y[i] = cur
     return xs, y
@@ -63,7 +65,7 @@ def fibres(seed=11):
     out = []
     for i in range(BROWS):
         y0 = 4.0 + SY * i + rng.uniform(-1, 1)
-        band = min(abs(y0 - 24), abs(y0 - 92)) < 10
+        band = min(abs(y0 - 24 * FY), abs(y0 - 92 * FY)) < 10
         skip = rng.random() < 0.28 and not band and abs(y0 - ky) > ry * 1.2
         w = gaussian_filter1d(rng.standard_normal(W), 28, mode="reflect")
         w = np.clip(0.8 * base + w / w.std(), -3.0, 3.0) * 0.8
@@ -101,16 +103,17 @@ def board(with_crack=True):
         img -= f["amp"] * np.exp(-((yy - f["y"][None, :]) / 1.2) ** 2) * live[None, :]
     xx = np.arange(W)[None, :] + 0.5
     rho = np.sqrt(((xx - kx) / rx) ** 2 + ((yy - ky) / ry) ** 2)
-    for r0 in KNOT_RINGS:
-        img -= 0.10 * np.exp(-((rho - r0) * ry / 1.2) ** 2)
-    img -= 0.12 * np.exp(-(rho / 0.18) ** 2)
+    img -= 0.16 * np.clip(1.15 - rho, 0, 1) ** 0.5                  # the knot is darker wood
+    for r0 in KNOT_RINGS:                                            # thick enough to survive the print
+        img -= 0.22 * np.exp(-((rho - r0) * ry / 3.0) ** 2)
+    img -= 0.3 * np.exp(-(rho / 0.18) ** 2)
     path = None
     if with_crack:
         xs, cy = crack_path(np.random.default_rng(5))
         path = (xs, cy)
         for x, c in zip(xs, cy):
             taper = min(1, (x - CRACK_X0) / 6, (CRACK_X1 - 1 - x) / 6) ** 0.6
-            img[:, x] -= 0.72 * taper * np.exp(-((yy[:, 0] - c) / 1.5) ** 2)
+            img[:, x] -= 0.75 * taper * np.exp(-((yy[:, 0] - c) / 3.2) ** 2)   # about a cell tall
     return np.clip(img, 0, 1), path
 
 
@@ -144,7 +147,7 @@ def inp_former(img):
 
 
 DETECTORS = [glass, efficientad, inp_former]
-K_SCALE = (4.2, 3.8, 3.3)
+K_SCALE = (3.3, 2.9, 4.0)
 
 
 def maps():
@@ -159,84 +162,17 @@ def maps():
     return img, path, out, scores
 
 
-# ---------------------------------------------------------------- glyphs
-def fibre_cells():
-    """Every fibre as a run of - and _ (/ and \\ where it climbs a row), a few ~ where it waves."""
-    fib, rng = fibres()
-    cells = {}
-    for f in fib:
-        y, live = f["y"], f["live"]
-        ym = [np.mean(y[c * SX:(c + 1) * SX]) for c in range(BCOLS)]
-        rows = [int(v // SY) for v in ym]
-        frs = [(v % SY) / SY for v in ym]
-        placed = []
-        for c in range(BCOLS):
-            if not live[c] or not (0 <= rows[c] < BROWS):
-                continue
-            nxt = rows[c + 1] if c + 1 < BCOLS else rows[c]
-            if nxt != rows[c]:
-                ch = "/" if nxt < rows[c] else BS
-            else:
-                ch = "_" if frs[c] >= 0.62 else "-"
-            if (rows[c], c) not in cells:
-                cells[(rows[c], c)] = (ch, f["cls"])
-                placed.append(c)
-        if rng.random() < 0.6 and placed:
-            c0 = placed[int(rng.integers(0, len(placed)))]
-            for c in range(c0, c0 + int(rng.integers(3, 6))):
-                k = (rows[c] if c < BCOLS else -9, c)
-                if k in cells and cells[k][0] in "-_":
-                    cells[k] = ("~", cells[k][1])
-    return cells
+# ---------------------------------------------------------------- printing the board
+PRINT = Printer(edge=0.28, floor=0.05)
 
 
-def knot_cells():
-    """Concentric elliptical rings as line glyphs chosen by tangent, plus a small core."""
-    kx, ky, rx, ry = KNOT
-    acc = {}
-    t = np.linspace(0, 2 * np.pi, 900, endpoint=False)
-    for r0 in KNOT_RINGS:
-        px, py = kx + rx * r0 * np.cos(t), ky + ry * r0 * np.sin(t)
-        tx, ty = -rx * r0 * np.sin(t), ry * r0 * np.cos(t)
-        for i in range(len(t)):
-            acc.setdefault((int(py[i] // SY), int(px[i] // SX)), []).append(
-                (py[i] % SY / SY, ty[i] / SY, tx[i] / SX, np.cos(t[i])))
-    cells = {}
-    for (r, c), pts in acc.items():
-        fr, dy, dx, cs = np.mean(pts, axis=0)
-        sl = abs(dy) / (abs(dx) + 1e-9)
-        if sl > 2.8:
-            cells[(r, c)] = "(" if cs < 0 else ")"
-        elif sl > 0.9:
-            cells[(r, c)] = "/" if dy * dx < 0 else BS
-        elif fr < 0.36:
-            cells[(r - 1, c)] = "_"
-        elif fr < 0.7:
-            cells[(r, c)] = "-"
-        else:
-            cells[(r, c)] = "_"
-    cells[(int(ky // SY), int(kx // SX))] = "o"
-    return cells
-
-
-def crack_cells(path):
-    """One unbroken jagged line: - and _ along a row, / or \\ in the cell where it steps, | for long steps."""
-    xs, cy = path
-    c0, c1 = int(xs[0] // SX), int(xs[-1] // SX)
-    cols = list(range(c0, c1 + 1))
-    ys = [cy[(xs >= c * SX) & (xs < (c + 1) * SX)].mean() for c in cols]
-    rows = [int(y // SY) for y in ys]
-    out = {}
-    for i, c in enumerate(cols):
-        r = rows[i]
-        nr = rows[i + 1] if i + 1 < len(cols) else r
-        if nr != r:
-            out[(r, c)] = "/" if nr < r else BS
-            for rr in range(min(r, nr) + 1, max(r, nr)):
-                out[(rr, c)] = "|"
-        else:
-            out[(r, c)] = "_" if (ys[i] % SY) / SY >= 0.55 else "-"
-    return out
+def board_grid(img):
+    """The board image as glyphs and tones: wood is light, so it prints dense; dark breaks print sparse."""
+    v = np.clip(0.42 + 1.1 * (img - 0.66), 0, 1)        # wood mid-dense; fibres, rings and the crack darker
+    ch, lum = PRINT(v)
+    cl = np.full(ch.shape, "t3", dtype="<U2")
+    cl[lum < 0.3] = "t2"
+    return ch, cl
 
 
 # ---------------------------------------------------------------- composition
@@ -248,24 +184,13 @@ def build():
         kn = cm[max(kr - 3, 0):kr + 4, kc - 9:kc + 10]
         print(f"{n:12s} max {m.max():.2f}  knot-area cell max {kn.max():.2f}  >0.46: {(cm >= 0.46).sum()} cells")
 
-    grain = fibre_cells()
-    knot = knot_cells()
-    crk = crack_cells(path)
-
-    base = Grid(COLS, ROWS)
-    base.text(BC0, 1, "-" * BCOLS, "t2")
-    base.text(BC0, BR0 + BROWS, "-" * BCOLS, "t2")
-    lane = {(r + dr, c + dc) for (r, c) in crk for dr in (-1, 0, 1) for dc in (-1, 0, 1)}
     kr, kc = int(KNOT[1] // SY), int(KNOT[0] // SX)
-    for (r, c), (ch, cl) in grain.items():
-        if (r, c) not in lane and (r, c) not in knot and 0 <= r < BROWS and 0 <= c < BCOLS:
-            base.put(BC0 + c, BR0 + r, ch, cl)
-    for (r, c), ch in knot.items():
-        if 0 <= r < BROWS and 0 <= c < BCOLS:
-            base.put(BC0 + c, BR0 + r, ch, "t3")
-    for (r, c), ch in crk.items():
-        if 0 <= r < BROWS:
-            base.put(BC0 + c, BR0 + r, ch, "t4")
+    base = Grid(COLS, ROWS)
+    base.text(BC0, 1, "_" * BCOLS, "t2")
+    base.text(BC0, BR0 + BROWS, "-" * BCOLS, "t2")
+    bch, bcl = board_grid(img)
+    bcl[bch == " "] = ""
+    base.paste(bch, bcl, BC0, BR0)
     print("empty board cells: %.0f%%" % (100 * (base.ch[BR0:BR0 + BROWS, BC0:BC0 + BCOLS] == " ").mean()))
 
     cmaps = [cell_max(m) for m in mp]
@@ -316,13 +241,13 @@ def build():
             g.text(x, 0, name, "t5" if active == i else "t2")
             x += len(name) + 3
         if score_shown:
-            g.rtext(66, 0, f"score {scores[k]:.2f}", "t5")
+            g.rtext(COLS - 2, 0, f"score {scores[k]:.2f}", "t5")
         if tags:
-            g.ctext(BC0 + kc, 17, "knot", "t2")
-            g.ctext(BC0 + (CRACK_X0 + CRACK_X1) // 2 // SX, 17, "crack", "t2")
+            g.ctext(BC0 + kc, ROWS - 2, "knot", "t2")
+            g.ctext(BC0 + (CRACK_X0 + CRACK_X1) // 2 // SX, ROWS - 2, "crack", "t2")
         frames.append(g)
 
-    m = Movie(COLS, ROWS, title="Anomaly maps on a wooden board",
+    m = Movie(COLS, ROWS, cell=FINE, title="Anomaly maps on a wooden board",
               desc="A planed wooden board with a natural knot and a crack is scanned three times, once each by "
                    "GLASS, EfficientAD and INP-Former. Each sweep paints that model's anomaly map in red over "
                    "the grain: it lights up on the crack and stays quiet on the knot, then fades out with a score.")

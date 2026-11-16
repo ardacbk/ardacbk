@@ -1,8 +1,9 @@
 """Leaves: a leaf getting sick before it looks sick.
 
 A procedurally drawn leaf (outline, midrib, curved side veins) is rendered as a
-float image at 4 x 8 samples per cell and turned into line glyphs.  On that same
-sample grid a lesion field L is simulated: three infection sites, logistic growth
+shaded float image at 4 x 8 samples per cell on the fine grid and printed with
+the shared Printer: a lit blade whose veins and rim show as brighter lines.
+On that same sample grid a lesion field L is simulated: three infection sites, logistic growth
 plus diffusion (Fisher-KPP), the growth rate depending on air humidity.
 
 Two sensor traces come out of the same simulation: humidity (a scripted weather
@@ -18,21 +19,21 @@ import sys
 
 import numpy as np
 
-from engine import CARD, SX, SY, Grid, Movie, cell_mean
+from engine import CARD_FINE, FINE, SX, SY, Grid, Movie, Printer, cell_mean
 
-COLS, ROWS = CARD
+COLS, ROWS = CARD_FINE
 NX, NY = COLS * SX, ROWS * SY
 FPS = 8                     # traces and wipe; leaf and meter run at half that
 N_SIM = 88                  # frames of the episode (11 s)
 N_WIPE = 10                 # frames of the reload sweep (1.25 s)
-STEPS = 6                   # diffusion steps per frame
-WIN = 23                    # trace width in cells
-PC = 44                     # first column of the sensor panel
+STEPS = 8                   # diffusion steps per frame
+WIN = 30                    # trace width in cells
+PC = 62                     # first column of the sensor panel
 
 # ---------------------------------------------------------------- leaf geometry (in cells)
-C0, LL, RM = 6, 36, 9       # base column, length in columns, midrib row
-HMAX = 5.6                  # half height in rows at the widest point
-VEINS = [4, 10, 16, 22, 28]
+C0, LL, RM = 7, 50, 12      # base column, length in columns, midrib row
+HMAX = 8.0                  # half height in rows at the widest point
+VEINS = [5, 13, 21, 29, 37]
 
 
 def half_h(x):
@@ -55,83 +56,73 @@ def inside_cells():
     return (xc > 0) & (xc < LL) & (np.abs(rr + 0.5 - (RM + 0.5)) < half_h(xc) - 0.9)
 
 
-def edge_glyph(p, upper):
-    """a flat bit of edge at row-coordinate p -> (row, glyph); one glyph per column"""
-    r, fr = int(math.floor(p)), p - math.floor(p)
-    if fr < 0.25:
-        return r - 1, "_"
-    return (r, "-") if fr < 0.7 else (r, "_")
+PRINT = Printer(edge=0.3, floor=0.05)
+
+
+def leaf_image():
+    """The clean leaf as a shaded image (NY, NX): a blade lit across its width,
+    brighter veins and rim, and a short stem."""
+    yy, xx = np.mgrid[:NY, :NX] + 0.5
+    xc, yc = xx / SX - C0, yy / SY - (RM + 0.5)            # in cells, from the base and the midrib
+    hh = half_h(xc)
+    inside = (xc > 0) & (xc < LL) & (np.abs(yc) < hh)
+    u = np.clip(np.abs(yc) / np.maximum(hh, 1e-3), 0, 1)   # 0 at the midrib, 1 at the edge
+    img = np.where(inside, 0.14 + 0.14 * (1 - u) - 0.05 * (yc > 0), 0.0)
+    rng = np.random.default_rng(5)
+    img += inside * 0.03 * rng.standard_normal((NY, NX))
+    # rim: a thin band just inside the edge
+    line = inside * np.exp(-((hh - np.abs(yc)) * SY / 1.3) ** 2)
+    img = np.maximum(img, 0.7 * line)
+    return np.clip(img, 0, 1), inside
+
+
+def vein_glyphs():
+    """Midrib and side veins as line glyphs placed by slope (they are thin, so
+    drawing them directly reads better than printing them from the image)."""
+    out = {}
+    for c in range(C0 - 4, C0 + LL - 1):
+        out[(RM, c)] = ("-" if c >= C0 else "=", "t4")
+    for xk in VEINS:
+        for sgn in (-1, 1):
+            n = 13
+            reach = min(0.7 * float(half_h(xk + n)), n * 0.45 * SX / SY)
+            ys = [RM + 0.5 + sgn * reach * (1 - (1 - k / n) ** 1.6) for k in range(n + 1)]
+            for k in range(1, n):
+                c = C0 + xk + k
+                r = int(np.floor(ys[k]))
+                if r == RM or abs(ys[k] - (RM + 0.5)) > float(half_h(xk + k)) - 1.2:
+                    continue
+                nr = int(np.floor(ys[k + 1]))
+                if nr != r:
+                    g = "/" if sgn < 0 else "\\"
+                else:
+                    g = "_" if ys[k] - r >= 0.62 else "-"
+                out.setdefault((r, c), (g, "t3"))
+    return out
+
+
+VEINS_AT = None
+
+
+def put_veins(ch, cl, keep):
+    global VEINS_AT
+    if VEINS_AT is None:
+        VEINS_AT = vein_glyphs()
+    for (r, c), (g, k) in VEINS_AT.items():
+        if 0 <= r < ROWS and 0 <= c < COLS and keep[r, c]:
+            ch[r, c], cl[r, c] = g, k
 
 
 def leaf_glyphs():
-    """static characters of the clean leaf: (chars, classes, blade mask)"""
-    ch = np.full((ROWS, COLS), " ", dtype="<U1")
-    cl = np.full((ROWS, COLS), "", dtype="<U2")
-
-    def put(c, r, g, k, force=False):
-        if 0 <= r < ROWS and 0 <= c < COLS and (force or ch[r, c] == " "):
-            ch[r, c], cl[r, c] = g, k
-
-    mid = RM + 0.5
-    used = {True: set(), False: set()}
-    # outline: the upper edge rises then falls; the lower one mirrors it
-    for c in range(C0, C0 + LL):
-        h0, h1 = float(half_h(c - C0)), float(half_h(c + 1 - C0))
-        hm = float(half_h(c + 0.5 - C0))
-        rising = h1 > h0
-        for upper in (True, False):
-            sgn = -1 if upper else 1
-            p0, p1, pm = mid + sgn * h0, mid + sgn * h1, mid + sgn * hm
-            if abs(hm) < 0.45:                                   # edges have met the midrib
-                continue
-            if abs(h1 - h0) <= 0.62:
-                r, g = edge_glyph(pm, upper)
-                if r != RM:
-                    put(c, r, g, "t4")
-            else:
-                lo, hi = sorted((p0, p1))
-                rows = range(int(math.floor(lo)), int(math.floor(hi)) + 1)
-                for r in rows:
-                    if r == RM or r in used[upper]:
-                        continue
-                    used[upper].add(r)
-                    if c == C0:
-                        g = "("
-                    elif upper:
-                        g = "/" if rising else "\\"
-                    else:
-                        g = "\\" if rising else "/"
-                    put(c, r, g, "t4")
-    put(C0 + LL - 1, RM, ">", "t4", True)
-    for c in range(C0 - 4, C0):                                  # stem
-        put(c, RM, "-", "t4", True)
-    # midrib and side veins (leaning toward the tip, stopping a cell short of the edge)
-    for c in range(C0, C0 + LL - 1):
-        put(c, RM, "-", "t3", True)
-    for xk in VEINS:
-        c0 = C0 + xk
-        for j in range(1, 8):
-            c = c0 + j
-            if c >= C0 + LL - 2:
-                break
-            h = float(half_h(c + 0.5 - C0))
-            if RM - j < math.floor(mid - h) + 2:
-                break
-            put(c, RM - j, "/", "t2")
-        for j in range(1, 8):
-            c = c0 + j
-            if c >= C0 + LL - 2:
-                break
-            h = float(half_h(c + 0.5 - C0))
-            if RM + j > math.floor(mid + h) - 2:
-                break
-            put(c, RM + j, "\\", "t2")
-    # sparse tissue texture
-    inside = inside_cells()
-    rng = np.random.default_rng(5)
-    tex = (rng.random((ROWS, COLS)) < 0.125) & inside & (ch == " ")
-    ch[tex], cl[tex] = ".", "t1"
-    return ch, cl, inside
+    """static characters of the clean leaf: (chars, classes, blade mask per cell, image)"""
+    img, inside = leaf_image()
+    ch, lum = PRINT(img)
+    cl = np.full(ch.shape, "t2", dtype="<U2")
+    cl[lum > 0.2] = "t3"
+    cl[lum > 0.35] = "t4"
+    put_veins(ch, cl, np.ones(ch.shape, bool))
+    cl[ch == " "] = ""
+    return ch, cl, cell_mean(inside.astype(float)) > 0.5, img
 
 
 # ---------------------------------------------------------------- simulation
@@ -155,7 +146,7 @@ def logistic(x):
     return 1 / (1 + math.exp(-x))
 
 
-PRE = 100   # frames of baseline history shown before frame 0 (so the traces start full)
+PRE = 130   # frames of baseline history shown before frame 0 (so the traces start full)
 
 
 def simulate():
@@ -166,9 +157,9 @@ def simulate():
         inner = inner & np.roll(inner, 1, 0) & np.roll(inner, -1, 0) & np.roll(inner, 1, 1) & np.roll(inner, -1, 1)
     yy, xx = np.mgrid[:NY, :NX] + 0.5
     L = np.zeros((NY, NX), np.float32)
-    for (c, r, amp) in ((C0 + 16, RM - 3, 0.012), (C0 + 19, RM + 2, 0.004), (C0 + 10, RM + 3, 0.0025)):
+    for (c, r, amp) in ((C0 + 23, RM - 4, 0.012), (C0 + 27, RM + 3, 0.004), (C0 + 14, RM + 4, 0.0025)):
         x, y = (c + 0.5) * SX, (r + 0.5) * SY
-        L += amp * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * 2.0 ** 2))
+        L += amp * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * 2.8 ** 2))
     L *= inner
 
     total = PRE + N_SIM
@@ -234,7 +225,7 @@ def glyphs_from_mask(m):
     return ch
 
 
-def trace_cells(series, lo, hi, rows=4):
+def trace_cells(series, lo, hi, rows=6):
     """last WIN*4 samples of a series -> (chars, strength) on a rows x WIN cell patch, drawn as line art"""
     h = rows * SY
     n = WIN * SX
@@ -248,21 +239,26 @@ def trace_cells(series, lo, hi, rows=4):
     return glyphs_from_mask(m)
 
 
-def lesion_overlay(Lc, ch0, cl0, inside):
-    """characters for the stress field; only blade cells, never the outline"""
-    ch, cl = ch0.copy(), cl0.copy()
-    tex = ch0 == "."
-    barely = (Lc >= 0.03) & (Lc < 0.12) & tex
-    ch[barely], cl[barely] = ch0[barely], "b"
-    for t, g, c in [(0.12, ".", "b"), (0.2, ":", "b"), (0.3, "o", "b"), (0.45, "*", "b"), (0.6, "*", "a"), (0.75, "@", "a")]:
-        sel = (Lc >= t) & inside
-        ch[sel], cl[sel] = g, c
+def lesion_overlay(L, img0, inside):
+    """The leaf with its lesions: a yellowing halo (dim red tone, the leaf's own
+    glyphs) around a necrotic core printed dense in the accent."""
+    core = np.clip((L - 0.35) / 0.4, 0, 1)
+    img = img0 * (1 - core) + 0.95 * core                  # the spot itself prints dense
+    ch, lum = PRINT(img)
+    Lc = cell_mean(L)
+    cl = np.full(ch.shape, "t2", dtype="<U2")
+    cl[lum > 0.2] = "t3"
+    cl[lum > 0.35] = "t4"
+    put_veins(ch, cl, Lc < 0.45)
+    cl[(Lc >= 0.06) & inside] = "b"
+    cl[(Lc >= 0.45) & inside] = "a"
+    cl[ch == " "] = ""
     return ch, cl
 
 
 def put_traces(g, sim, i):
     j = PRE + i
-    for (r0, series, lo, hi) in ((2, sim["hum"], 0.40, 0.96), (8, sim["temp"], -0.5, 3.6)):
+    for (r0, series, lo, hi) in ((2, sim["hum"], 0.40, 0.96), (11, sim["temp"], -0.5, 3.6)):
         ch = trace_cells(series[j - WIN * SX + 1:j + 1], lo, hi)
         cl = np.where(ch != " ", "t3", "")
         cl[:, -1] = np.where(ch[:, -1] != " ", "t4", "")
@@ -274,18 +270,18 @@ def put_meter(g, sim, i):
     hot = pv >= 0.5
     cls = "a" if hot else "t3"
     g.text(PC, 1, "humidity", "t2")
-    g.text(PC, 7, "leaf temp", "t2")
-    g.text(PC, 13, "p(disease)", "t2")
-    k = int(round(pv * 12))
-    g.text(PC, 14, "[" + "#" * k + "." * (12 - k) + "]", cls)
-    g.text(PC + 14, 14, f"{pv:.2f}", cls)
+    g.text(PC, 10, "leaf temp", "t2")
+    g.text(PC, 19, "p(disease)", "t2")
+    k = int(round(pv * 20))
+    g.text(PC, 20, "[" + "#" * k + "." * (20 - k) + "]", cls)
+    g.text(PC + 23, 20, f"{pv:.2f}", cls)
     if hot:
-        g.text(PC, 15, "early warning", "a")
+        g.text(PC, 22, "early warning", "a")
 
 
 def build():
     sim = simulate()
-    ch0, cl0, inside = leaf_glyphs()
+    ch0, cl0, inside, img0 = leaf_glyphs()
     area, p = sim["area"], sim["p"][PRE:]
     cross = int(np.argmax(p >= 0.5))
     first_o = next(i for i in range(N_SIM) if (cell_mean(sim["L"][i]) >= 0.3).any())
@@ -294,7 +290,7 @@ def build():
 
     def episode(i):
         g = Grid(COLS, ROWS)
-        ch, cl = lesion_overlay(cell_mean(sim["L"][i]), ch0, cl0, inside)
+        ch, cl = lesion_overlay(sim["L"][i], img0, inside)
         g.paste(ch, cl)
         put_meter(g, sim, i)
         return g
@@ -322,8 +318,8 @@ def build():
                 g.put(cw, r, "|", "t3")
         W.append(g)
 
-    m = Movie(COLS, ROWS, pad=(14, 12), title="A leaf getting sick before it looks sick",
-              desc="An ASCII leaf drawn as a clean line drawing, with two scrolling sensor traces "
+    m = Movie(COLS, ROWS, pad=(14, 12), cell=FINE, title="A leaf getting sick before it looks sick",
+              desc="A shaded ASCII leaf with bright veins, with two scrolling sensor traces "
                    "(humidity, leaf temperature) and a p(disease) meter. As a simulated lesion field grows from "
                    "three infection sites, the meter fed by image and sensor evidence turns red with an early "
                    "warning while the leaf still looks almost clean; only later do the spots show. Then a new "

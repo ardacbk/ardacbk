@@ -5,27 +5,33 @@ screen. Position Verlet (x_new = 2x - x_old + a dt^2), 8 sub-steps of
 dt = 1/60 s per frame, gravity, pairwise circle collisions resolved by
 pushing overlapping particles apart, and a circular boundary constraint.
 
-A nozzle at the upper left emits one particle per frame. They arc across,
+A nozzle at the upper left emits four particles per frame. They arc across,
 hit the wall, slide down and pile up. Once the pile has rested, the bottom
 of the container opens, the particles pour out and leave the frame, and the
 wall closes again: the last frame is the empty container, like the first.
+
+At this size a particle reads best as one glyph, so the card uses the fine
+grid (about twice the cells of a standard card) for many particles rather
+than drawing each one bigger: a resting particle is an o or O, a fast one
+is a streak along its velocity with a fading dot behind it, its tone says
+how fast it moves and the newest are red.
 """
 import math
 import sys
 
 import numpy as np
 
-from engine import CARD, Grid, Movie
+from engine import CARD_FINE, FINE, Grid, Movie
 
-COLS, ROWS = CARD
+COLS, ROWS = CARD_FINE
 FPS, N = 10, 120
 SUB, DT = 8, 1 / 60
-G = 75.0                                  # units / s^2 (1 unit = 1 column)
-CX, CY = 34.0, 16.0                       # container centre, in units
-R_DRAW = 15.2                             # drawn outline radius
-R_PHYS = 13.95                            # limit for particle centres (minus own radius)
-NOZZLE = (26.0, 8.0)
-EMIT_FIRST, EMIT_COUNT = 2, 72
+G = 115.0                                 # units / s^2 (1 unit = 1 column)
+CX, CY = 57.0, 25.0                       # container centre, in units
+R_DRAW = 23.2                             # drawn outline radius
+R_PHYS = 21.95                            # limit for particle centres (minus own radius)
+NOZZLE = (44.0, 12.0)
+EMIT_FIRST, EMIT_COUNT, PER = 2, 78, 4   # frames emitting, particles per frame
 OPEN_AT, OPEN_FRAMES, CLOSE_AT = 98, 6, 112
 RNG_SEED = 11
 STEEP = 30
@@ -105,8 +111,8 @@ class World:
     def emit(self, f):
         big = self.spawned % 9 == 4
         r = 0.85 if big else 0.52
-        v = np.array([self.rng.uniform(26, 34), self.rng.uniform(-9, 4)]) * DT
-        pos = np.array(NOZZLE) + [2.5, 0]
+        v = np.array([self.rng.uniform(40, 52), self.rng.uniform(-14, 6)]) * DT
+        pos = np.array(NOZZLE) + [2.5, self.rng.uniform(-0.6, 0.6)]
         self.p = np.vstack([self.p, pos])
         self.o = np.vstack([self.o, pos - v])
         self.r = np.append(self.r, r)
@@ -157,7 +163,7 @@ class World:
     def frame(self):
         for _ in range(SUB):
             self.substep()
-        keep = self.p[:, 1] < 34.0                       # fell out of the card
+        keep = self.p[:, 1] < ROWS * 2 + 4               # fell out of the card
         if not keep.all():
             self.p, self.o, self.r, self.born = self.p[keep], self.o[keep], self.r[keep], self.born[keep]
             self.disp = [x for x, k in zip(self.disp, keep) if k] if hasattr(self, "disp") else []
@@ -176,8 +182,9 @@ def build():
     for f in range(N):
         # events
         if EMIT_FIRST <= f < EMIT_FIRST + EMIT_COUNT:
-            w.emit(f)
-            w.disp.append(None)
+            for _ in range(PER):
+                w.emit(f)
+                w.disp.append(None)
         w.gap = 0.0
         if f >= OPEN_AT:
             w.gap = math.radians(34) * min((f - OPEN_AT + 1) / OPEN_FRAMES, 1.0)
@@ -194,7 +201,7 @@ def build():
             g.put(nz_c, nz_r, "[", "t2")
             g.put(nz_c + 1, nz_r, "=", "t2")
 
-        cells = {}
+        cells, trail = {}, {}
         for i in range(len(w.p)):
             x, y = w.p[i]
             v = w.p[i] - w.o[i]
@@ -209,32 +216,38 @@ def build():
             if r >= ROWS - 1 or not (0 <= c < COLS):
                 continue
             age = f - w.born[i]
-            if age < 2:
-                cls, ch = "a", "o"
-            else:
-                cls = "t3" if spf < 1.0 else ("t4" if spf < 3.0 else "t5")
-                ch = "O" if w.r[i] > 1.0 else "o"
-            if age < 2:
-                score = 1e3
-            else:
-                score = spf
+            cls = "t3" if spf < 1.0 else ("t4" if spf < 3.0 else "t5")
+            ch = "O" if w.r[i] > 1.0 else "o"
+            if spf >= 4.0:                                  # a streak along the velocity
+                ang = math.degrees(math.atan2(v[1], v[0])) % 180
+                ch = "-" if ang < 22 or ang >= 158 else ("\\" if ang < 68 else ("|" if ang < 112 else "/"))
+                tc, tr = int((x - v[0] * SUB) // 1), int((y - v[1] * SUB) // 2)
+                inside = math.hypot(tc + 0.5 - CX, tr * 2 + 1 - CY) < R_DRAW - 1.0
+                if (tc, tr) != (c, r) and inside and 0 <= tc < COLS and 0 <= tr < ROWS - 1:
+                    trail.setdefault((tc, tr), ("." if spf < 6 else ":", "t2"))
+            if age < 3:
+                cls = "a"
+            score = 1e3 if age < 3 else spf
             if (c, r) not in cells or cells[(c, r)][0] < score:
                 cells[(c, r)] = (score, ch, cls)
+        for (c, r), (ch, cls) in trail.items():
+            if (c, r) not in cells and (c, r) not in cur:
+                g.put(c, r, ch, cls)
         for (c, r), (_, ch, cls) in cells.items():
             g.put(c, r, ch, cls)
         n = len(w.p)
         for i, line in enumerate(("verlet", f"n = {n:03d}", f"dt 1/60 x {SUB}")):
-            g.text(2, 7 + i, line, "t2")
+            g.text(3, 11 + i, line, "t2" if i != 1 else "t3")
         frames.append(g)
     return frames
 
 
 if __name__ == "__main__":
     frames = build()
-    m = Movie(COLS, ROWS, title="particle-physics-simulation",
+    m = Movie(COLS, ROWS, cell=FINE, title="particle-physics-simulation",
               desc="An ASCII Verlet simulation. A nozzle at the upper left of a round container fires a stream of "
-                   "particles that arc across, bounce off the wall, slide down and pile up at the bottom. The "
-                   "newest particle is drawn in red. Then the bottom opens, the pile pours out and the "
+                   "particles that arc across, streaking as they fly, bounce off the wall, slide down and pile up "
+                   "at the bottom; their tone says how fast they move and the newest are red. Then the bottom opens, the pile pours out and the "
                    "empty container is ready for the next run.")
     m.add(frames, FPS)
     if "--preview" in sys.argv:

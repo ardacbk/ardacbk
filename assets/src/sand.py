@@ -11,39 +11,44 @@ A "mouse" pours sand (left click) or water (right click) at the cursor.
 Loop: empty scene -> water -> sand -> more water until it overflows -> the
 sources stop, the floor and the roof of the ledge open, everything drains off
 the bottom -> they close again on an empty scene.
+
+The card uses the fine grid, so the automaton has about twice the cells and
+its piles settle into readable slopes. Water is shaded by depth: a bright
+rippling surface over a body that darkens as it deepens.
 """
 import sys
 
 import numpy as np
 
-from engine import CARD, Grid, Movie
+from engine import CARD_FINE, FINE, Grid, Movie
 
-COLS, ROWS = CARD
-FPS, N = 10, 100
+COLS, ROWS = CARD_FINE
+FPS, N = 10, 110
 TICKS = 2                        # automaton ticks per frame
 
 EMPTY, STONE, SAND, WATER = 0, 1, 2, 3
-H = 16                           # simulated rows 0..15 (row 15 is the floor)
-XMIN, XMAX = 2, 65               # left edge is a wall, the right edge is a drop
+H = 22                           # simulated rows 0..21 (row 21 is the floor)
+FL = H - 1
+XMIN, XMAX = 2, 92               # left edge is a wall, the right edge is a drop
 
 # ---------------------------------------------------------------- the level
-ROOF = (7, 8)                    # two rows of stone over a hollow ledge
-LEDGE = (2, 29)                  # columns of the ledge block
-BASIN = (30, 51)                 # basin interior
-WALL = (52, 53)                  # right wall of the basin
-WALL_TOP = 11
-SHELF = (42, 48, 5)              # small floating stone shelf (c0, c1, row)
-SAND_COLS = (27, 23)
-WATER_COL = 45
+ROOF = (10, 11)                  # two rows of stone over a hollow ledge
+LEDGE = (2, 41)                  # columns of the ledge block
+BASIN = (42, 72)                 # basin interior
+WALL = (73, 74)                  # right wall of the basin
+WALL_TOP = 14
+SHELF = (59, 68, 7)              # small floating stone shelf (c0, c1, row)
+SAND_COLS = (38, 31)
+WATER_COL = 64
 
 
 def level():
     m = np.zeros((H, COLS), np.int8)
-    m[15, XMIN:XMAX + 1] = STONE                                   # floor
+    m[FL, XMIN:XMAX + 1] = STONE                                   # floor
     m[ROOF[0]:ROOF[1] + 1, LEDGE[0]:LEDGE[1] + 1] = STONE          # roof of the ledge
-    m[ROOF[1] + 1:15, LEDGE[0]:LEDGE[0] + 2] = STONE               # left pillar
-    m[ROOF[1] + 1:15, LEDGE[1] - 1:LEDGE[1] + 1] = STONE           # right pillar
-    m[WALL_TOP:15, WALL[0]:WALL[1] + 1] = STONE                    # basin wall
+    m[ROOF[1] + 1:FL, LEDGE[0]:LEDGE[0] + 2] = STONE               # left pillar
+    m[ROOF[1] + 1:FL, LEDGE[1] - 1:LEDGE[1] + 1] = STONE           # right pillar
+    m[WALL_TOP:FL, WALL[0]:WALL[1] + 1] = STONE                    # basin wall
     m[SHELF[2], SHELF[0]:SHELF[1] + 1] = STONE
     return m
 
@@ -51,12 +56,12 @@ def level():
 # trapdoors: stone cells that open for the drain (cell -> frame it opens)
 rng_doors = np.random.default_rng(3)
 DOORS = {}
-for c in range(6, 28):
+for c in range(6, LEDGE[1] - 1):
     for r in ROOF:
         DOORS[(r, c)] = int(rng_doors.integers(83, 88))
-for c in list(range(4, 28)) + list(range(30, 52)) + list(range(54, XMAX + 1)):
-    DOORS[(15, c)] = int(rng_doors.integers(83, 89))
-CLOSE_AT = 97
+for c in list(range(4, LEDGE[1] - 1)) + list(range(BASIN[0], BASIN[1] + 1)) + list(range(WALL[1] + 1, XMAX + 1)):
+    DOORS[(FL, c)] = int(rng_doors.integers(83, 89))
+CLOSE_AT = 108
 
 # ---------------------------------------------------------------- cursor timeline
 # (frame, column, tool)
@@ -143,11 +148,11 @@ class World:
         # the mouse
         for tool, col in pour:
             if tool == "water":
-                n = 3 + int(rng.random() < 0.7)
+                n = 6 + int(rng.random() < 0.7)
             else:
-                n = 2 + int(rng.random() < 0.6)
+                n = 6 + int(rng.random() < 0.6)
             for _ in range(n):
-                cc = col + int(rng.integers(-1, 2))
+                cc = col + int(rng.integers(-2, 3))
                 if m[1, cc] == EMPTY:
                     self.put(1, cc, WATER if tool == "water" else SAND, True)
                     tick_moved[1, cc] = True
@@ -171,7 +176,7 @@ class World:
 
 
 # ---------------------------------------------------------------- drawing
-LEGEND_ROW = 17
+LEGEND_ROW = ROWS - 1
 
 
 def stone_class(m, r, c):
@@ -192,17 +197,24 @@ def draw(world, stone, f):
             if stone[r, c]:
                 g.put(c, r, "#", stone_class(stone, r, c))
             elif e == SAND:
-                ch = "." if (c * 7 + r * 3) % 4 == 0 else ":"
+                ch = ".:;:"[(c * 7 + r * 3) % 4]
                 g.put(c, r, ch, "a" if world.moved[r, c] else "b")
             elif e == WATER:
                 air = r == 0 or m[r - 1, c] == EMPTY
                 below = world.at(r + 1, c)
-                if below in (EMPTY, -1) and r <= 12:
+                depth = 0                          # water cells above this one
+                while r - depth - 1 >= 0 and m[r - depth - 1, c] == WATER:
+                    depth += 1
+                if (below in (EMPTY, -1) or world.fell[r, c]) and r <= FL - 3:
                     g.put(c, r, "|", "t4")         # falling
                 elif air and below not in (EMPTY, -1):
-                    g.put(c, r, "-" if ((c // 2) + f // 10) % 2 else "~", "t4")
-                else:
+                    g.put(c, r, "-" if ((c // 3) + f // 8) % 3 == 0 else "~", "t5")   # the rippling surface
+                elif depth < 3:
                     g.put(c, r, "~", "t4")
+                elif depth < 6:
+                    g.put(c, r, "~" if (c + r) % 2 else "-", "t3")
+                else:
+                    g.put(c, r, "-" if (c + r) % 3 else ".", "t2")
     cur = cursor(f)
     if cur:
         col, tool, pouring = cur
@@ -257,7 +269,7 @@ def main():
           {i: (counts[i] // 1000, counts[i] % 1000) for i in (0, 20, 40, 60, 78, 90, N - 1)})
     left = counts[-1]
     print("left at end:", left)
-    m = Movie(COLS, ROWS, pad=(12, 12), title="sand-simulation",
+    m = Movie(COLS, ROWS, pad=(12, 12), cell=FINE, title="sand-simulation",
               desc="A falling-sand cellular automaton drawn one cell per character. Water pours into a stone "
                    "basin, sand pours onto a ledge, piles up, slides over the edge and sinks through the water "
                    "until the basin overflows; then the floor opens, everything drains away and the loop restarts.")
@@ -265,7 +277,7 @@ def main():
     if "--preview" in sys.argv:
         m.preview("sand.png", times=(0.0, 2.0, 3.8, 5.6, 7.6, 8.8))
         m.preview("sand-light.png", times=(6.2, 7.8), theme="light")
-        m.preview("sand-seam.png", times=(9.8, 0.0))
+        m.preview("sand-seam.png", times=(10.8, 0.0))
     m.write("sand.svg")
 
 

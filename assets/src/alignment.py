@@ -11,16 +11,19 @@ training, together with the learning curve. The loop replays one rollout per
 snapshot from the same misaligned start pose. Both planes are drawn in a fixed
 oblique projection (a level plane is a parallelogram); misalignment shows up as
 corner heights (two tilts + a height offset), joined to the target corners by
-short error posts. Lines are rasterised one glyph per column or per row.
+short error posts. The target is a dashed outline; the moving plane is a solid
+lit panel (rendered as an image on the fine grid and printed with the shared
+Printer), so its tilt also shows as a change in shading: it takes on the
+target's even tone as it settles.
 """
 import math
 import sys
 
 import numpy as np
 
-from engine import CARD, Grid, Movie
+from engine import CARD_FINE, FINE, SX, SY, Grid, Movie, Printer
 
-COLS, ROWS = CARD
+COLS, ROWS = CARD_FINE
 FPS = 10
 
 # ---------------------------------------------------------------- environment
@@ -135,13 +138,14 @@ def paint(g, cells, cls, box):
 
 
 # ---------------------------------------------------------------- the planes
-VIEW = (1, 0, 46, 16)                     # clip box of the 3-D view (c0, r0, c1, r1)
-C0 = 4                                    # column of the front-left corner
-W = 28                                    # plane width in columns
-D = 6                                     # plane depth in rows
+VIEW = (1, 0, 64, 23)                     # clip box of the 3-D view (c0, r0, c1, r1)
+C0 = 5                                    # column of the front-left corner
+W = 38                                    # plane width in columns
+D = 8                                     # plane depth in rows
 SH = 2                                    # columns of shear per row of depth
-YF = 14.95                                # row position of the front edge (bottom of row 14)
-H_K, A_K, B_K = 5.0, 3.0, 3.5             # rows per unit of height offset / tilt a / tilt b
+YF = 20.95                                # row position of the front edge
+H_K, A_K, B_K = 7.0, 4.2, 4.9             # rows per unit of height offset / tilt a / tilt b
+PRINT = Printer(edge=0.3, floor=0.05)
 
 
 def pos(u, v, height=0.0):
@@ -166,6 +170,29 @@ def plane_cells(state, interior):
         for u in us:
             row_line(cells, P(u, 0), P(u, 1))
     return out, inner
+
+
+def plane_picture(state):
+    """The moving plane as a lit panel: an image (rows*SY, cols*SX) with brighter
+    third-lines and rim; its tone follows the tilt, level = the even target tone."""
+    img = np.zeros((ROWS * SY, COLS * SX))
+    ta, tb, h = state
+    shade = np.clip(0.42 - 0.22 * tb + 0.18 * ta, 0.12, 0.8)
+    n = 260
+    us, vs = np.meshgrid(np.linspace(0, 1, n), np.linspace(0, 1, n // 3))
+    hh = corner_height(state, us, vs)
+    x, y = pos(us, vs, hh)
+    xi = np.clip((x * SX).astype(int), 0, COLS * SX - 1)
+    yi = np.clip((y * SY).astype(int), 0, ROWS * SY - 1)
+    val = np.full(us.shape, shade)
+    for t in (1 / 3, 2 / 3):
+        val = np.maximum(val, 0.6 * ((np.abs(us - t) < 0.004) | (np.abs(vs - t) < 0.012)))
+    val = np.maximum(val, 0.72 * ((us < 0.006) | (us > 0.994) | (vs < 0.016) | (vs > 0.984)))
+    for dy in (0, 1):
+        for dx in (0, 1):
+            yy, xx = np.clip(yi + dy, 0, ROWS * SY - 1), np.clip(xi + dx, 0, COLS * SX - 1)
+            img[yy, xx] = np.maximum(img[yy, xx], val)
+    return img
 
 
 def target_cells():
@@ -193,8 +220,8 @@ def posts(g, state):
 
 
 # ---------------------------------------------------------------- plot
-PX0, PX1 = 48, 67                         # x range of the plot area (columns, right edge exclusive)
-PY0, PY1 = 2.1, 8.9                       # y range (rows): top, bottom
+PX0, PX1 = 68, 93                         # x range of the plot area (columns, right edge exclusive)
+PY0, PY1 = 2.1, 12.9                      # y range (rows): top, bottom
 
 
 def plot_curve(curve):
@@ -226,14 +253,14 @@ def plot_curve(curve):
 
 def static_layer(curve):
     g = Grid(COLS, ROWS)
-    for r in range(1, 9):
+    for r in range(1, 13):
         g.put(PX0 - 1, r, "|", "t1")
     for c in range(PX0, PX1):
-        g.put(c, 9, "-", "t1")
-    g.put(PX0 - 1, 9, "+", "t1")
+        g.put(c, 13, "-", "t1")
+    g.put(PX0 - 1, 13, "+", "t1")
     g.text(PX0 - 1, 0, "return", "t2")
-    g.text(PX0, 10, "0", "t1")
-    g.rtext(PX1 - 1, 10, "600", "t1")
+    g.text(PX0, 14, "0", "t1")
+    g.rtext(PX1 - 1, 14, "600", "t1")
     cells, marks = plot_curve(curve)
     paint(g, cells, "t3", (0, 0, COLS - 1, ROWS - 1))
     return g, marks
@@ -264,21 +291,25 @@ def build():
             g = base.copy()
             lit = hit_f is not None and hit_f <= f < hit_f + 7
             posts(g, s)
-            out, inner = plane_cells(s, interior=True)
-            paint(g, inner, "a" if lit else "t3", VIEW)
-            paint(g, out, "a" if lit else "t4", VIEW)
-            g.text(C0 + W + 3, 14, "target", "t2")
+            ch, lum = PRINT(plane_picture(s))
+            cl = np.where(lum > 0.5, "t4", "t3").astype("<U2")
+            if lit:
+                cl[:] = "a"
+            cl[ch == " "] = ""
+            ch[:, VIEW[2] + 1:], cl[:, VIEW[2] + 1:] = " ", ""
+            g.paste(ch, cl)
+            g.text(C0 + W + 3, 20, "target", "t2")
             if hit_f is not None and f >= hit_f:
-                g.ctext(C0 + (W + SH * D) // 2, 16, "aligned", "a")
+                g.ctext(C0 + (W + SH * D) // 2, 23, "aligned", "a")
             g.put(mc, mr, "o", "t5")
-            g.text(PX0 - 1, 12, "err", "t2")
-            g.text(PX0 + 3, 12, f"{errs[si]:.2f}", "a" if lit else "t3")
-            g.text(PX0 - 1, 14, "episode", "t2")
-            g.text(PX0 + 7, 14, f"{episode:04d}", "t3")
+            g.text(PX0 - 1, 17, "err", "t2")
+            g.text(PX0 + 3, 17, f"{errs[si]:.2f}", "a" if lit else "t3")
+            g.text(PX0 - 1, 19, "episode", "t2")
+            g.text(PX0 + 7, 19, f"{episode:04d}", "t3")
             frames.append(g)
 
-    m = Movie(COLS, ROWS, title="A wireframe plane learning to align",
-              desc="A wireframe plane learns to align with a fixed dashed target plane. Three replayed rollouts "
+    m = Movie(COLS, ROWS, cell=FINE, title="A plane learning to align",
+              desc="A solid, lit plane learns to align with a fixed dashed target plane. Three replayed rollouts "
                    "from the same misaligned pose, early, middle and late in training: the early policy wobbles "
                    "and overshoots, the middle one reaches the target with some overshoot and the late one "
                    "settles smoothly, flashing red with an aligned tag. A learning curve with a marker and a "

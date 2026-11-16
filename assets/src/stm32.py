@@ -10,6 +10,10 @@ Left: the 4x4 keypad (KEY_MAP from keypad.h) with the column that is driven
 HIGH highlighted. Middle: contact, the sampled row pin, the FSM state and the
 returned key, scrolling right to left ("now" at the right edge). Right: the
 registers/variables the firmware would see.
+
+The timeline is drawn like a phosphor screen: the trace is brightest where it
+is being written ("now") and fades as it scrolls away, and every edge leaves a
+short bright flash. The pressed key sinks into the board by a row.
 """
 import sys
 
@@ -112,11 +116,16 @@ R_RULER, R_TICK = 1, 2
 R_CON, R_PIN, R_FSM, R_EVT = 4, 7, 11, 13       # top row of each signal (waves use two rows)
 
 
+def glow(age):
+    """Phosphor tone for a column `age` ms behind now."""
+    return "t5" if age < 4 else "t4" if age < 18 else "t3" if age < 45 else "t2"
+
+
 def wave(g, r, col, level, prev, cls):
     """Two-row square wave: high level on row r, low level on row r+1, edges as |."""
     if level != prev:
         g.put(col, r, "_", cls)
-        g.put(col, r + 1, "|", cls)
+        g.put(col, r + 1, "|", "t5" if cls in ("t5", "t4") else cls)
     elif level:
         g.put(col, r, "_", cls)
     else:
@@ -144,11 +153,9 @@ def draw_pressed(g, f, rec):
     if not rec[f]["down"]:
         return
     x, y = KP_C0 + KEY_C * 6, 3 + KEY_R * 3
-    g.text(x, y, ".---.", "a")
-    g.text(x, y + 2, "'---'", "a")
-    g.put(x, y + 1, "|", "a")
-    g.put(x + 4, y + 1, "|", "a")
-    g.put(x + 2, y + 1, KEY, "a")
+    g.cover(x, y, x + 4, y + 2)                         # hide the raised cap
+    g.text(x, y + 1, ".---.", "a")                      # the cap sunk by a row, flush with the board
+    g.text(x, y + 2, "|_" + KEY + "_|", "a")
     g.cover(x, y, x + 4, y + 2)
 
 
@@ -172,10 +179,11 @@ def draw_timeline(g, f, rec, ev_t):
                 g.text(col - 1, R_RULER, lab, "t3")
         elif t % 5 == 0:
             g.put(col, R_TICK, "'", "t2")
-        # contact (a lighter sample-instant tick under the poll)
-        wave(g, R_CON, col, rec[t]["contact"], rec[tp]["contact"], "t3")
+        # contact and pin, in phosphor tones that fade with age
+        age = TL_W - 1 - j
+        wave(g, R_CON, col, rec[t]["contact"], rec[tp]["contact"], glow(age))
         pin, pin_p = int(rec[t]["raw"] != "\0"), int(rec[tp]["raw"] != "\0")
-        wave(g, R_PIN, col, pin, pin_p, "t3")
+        wave(g, R_PIN, col, pin, pin_p, glow(age))
         # event pulse
         g.put(col, R_EVT + 1, "_", "t1")
         if rec[t]["ev"] != "\0":
