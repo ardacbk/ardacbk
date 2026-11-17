@@ -78,7 +78,7 @@ BACK_Z = 2.1
 # drums: (name, centre, axis, radius, half height); the head is the face along +axis
 UP = V(0, 1, 0)
 DRUMS = [
-    ("snare", V(0.3, 0.66, 0.5), unit((-0.08, 1, 0.18)), 0.18, 0.065),
+    ("snare", V(0.34, 0.66, 0.4), unit((-0.08, 1, 0.18)), 0.18, 0.065),
     ("tom1", V(0.15, 0.76, 0.28), unit((0.1, 1, 0.45)), 0.13, 0.085),
     ("tom2", V(-0.16, 0.77, 0.3), unit((-0.1, 1, 0.45)), 0.14, 0.09),
     ("floor", V(-0.47, 0.48, 0.5), unit((0.05, 1, 0.08)), 0.2, 0.19),
@@ -169,8 +169,11 @@ def arm(limb, target, lift):
     S = SHOULDER[limb]
     T = TARGET[target]
     rest = S + V(0, -0.32, -0.2)                         # where a relaxed hand sits
-    sd = unit(T - rest)
+    sd = unit(unit(T - rest) + V(0, -0.25, -0.9))        # sticks point away from the body
     grip_d = T - STICK * sd
+    if grip_d[2] > 0.5:                                  # hands stay in front of the belly
+        grip_d = grip_d + V(0, 0, 0.5 - grip_d[2])
+        sd = unit(T - grip_d)
     perp = unit(UP - (UP @ sd) * sd)
     a = lift * 1.15
     s = unit(sd * math.cos(a) + perp * math.sin(a))
@@ -187,8 +190,24 @@ def arm(limb, target, lift):
     side = -1 if limb == "R" else 1
     pole = V(side * 0.8, -1.0, 0.45)
     pole = unit(pole - (pole @ dn) * dn)
-    elbow = S + dn * along + pole * hgt
+    # swing the elbow around the shoulder-wrist line and keep the bend that clears
+    # the torso by the arm's thickness, closest to the natural out-and-down pole
+    u2 = np.cross(dn, pole)
+    best = None
+    for a in np.linspace(-math.pi, math.pi, 49):
+        e = S + dn * along + (pole * math.cos(a) + u2 * math.sin(a)) * hgt
+        pts = np.array([S + (e - S) * k for k in (0.5, 0.75, 1.0)] + [e + (wrist - e) * k for k in (0.25, 0.5, 0.75)])
+        clear = (torso(pts) - 0.065).min()
+        score = min(clear, 0.0) * 50 + math.cos(a)
+        if best is None or score > best[0]:
+            best = (score, e)
+    elbow = best[1]
     return S, elbow, wrist, grip, tip
+
+
+def torso(p):
+    return smin(capsule(p, HIP + V(-0.07, 0, 0), CHEST + V(-0.08, 0, 0), 0.13),
+                capsule(p, HIP + V(0.07, 0, 0), CHEST + V(0.08, 0, 0), 0.13), 0.05)
 
 
 def head_frame():
@@ -237,10 +256,10 @@ def parts(p):
         for k in range(3):
             a = k * 2.1 + 0.4
             st.append(capsule(p, foot + V(0, 0.32, 0), foot + V(0.17 * math.cos(a), 0, 0.17 * math.sin(a)), 0.009))
-    st.append(capsule(p, V(0.3, 0, 0.5), DRUM["snare"][0] - V(0, 0.06, 0), 0.012))
+    st.append(capsule(p, V(0.34, 0, 0.4), DRUM["snare"][0] - V(0, 0.06, 0), 0.012))
     for k in range(3):
         a = k * 2.1 + 1.0
-        st.append(capsule(p, V(0.3, 0.3, 0.5), V(0.3 + 0.18 * math.cos(a), 0, 0.5 + 0.18 * math.sin(a)), 0.009))
+        st.append(capsule(p, V(0.34, 0.3, 0.4), V(0.34 + 0.18 * math.cos(a), 0, 0.4 + 0.18 * math.sin(a)), 0.009))
     for n_ in ("tom1", "tom2"):
         st.append(capsule(p, KICK_C + V(0.0, KICK_R - 0.02, 0.05), DRUM[n_][0] - DRUM[n_][1] * 0.08, 0.012))
     for lx in (-0.62, -0.32):
