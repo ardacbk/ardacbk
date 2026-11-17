@@ -58,6 +58,10 @@ In Microelectronics and Electro-Optical Systems I modelled a 3D-plane alignment 
 
 ### For the fun of it
 
+<p align="center">
+  <img src="assets/hero_drums_front.svg" width="100%" alt="A ray-marched practice room drawn in ASCII. Someone with short curly dark-blond hair, a pale hoodie and red headphones plays a red drum kit under a warm spotlight, with a red light glowing behind; the front head of the bass drum reads ARDA ÇABUK. Every hit flashes where the stick lands and throws code into the air: keywords and symbols fly up out of the snare and the toms, the crash throws a fountain of them, the ride flicks a single symbol and the kick lets bits drift up, all arcing and fading from white to olive. Three bars of groove end in a fill around the toms. A black cat sits on the amp beside the kit.">
+</p>
+
 <table>
 <tr>
 <td width="50%" valign="top">
